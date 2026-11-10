@@ -12,6 +12,13 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Use a canonical fixture directory
+        shell: pwsh
+        run: |
+          $fixtureTemp = Join-Path $env:GITHUB_WORKSPACE '.state/ci-temp'
+          New-Item -ItemType Directory -Path $fixtureTemp -Force | Out-Null
+          "TEMP=$fixtureTemp" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TMP=$fixtureTemp" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - run: npm test
       - run: npm run build:companion
       - name: Native activation and startup fixtures
