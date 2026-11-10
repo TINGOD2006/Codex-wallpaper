@@ -1,0 +1,1 @@
+{"name":"codex-wallpaper-local","interface":{"displayName":"Codex Wallpaper Local"},"plugins":[{"name":"codex-wallpaper-control","source":{"source":"local","path":"./plugins/codex-wallpaper-control"},"policy":{"installation":"AVAILABLE","authentication":"ON_INSTALL"},"category":"Productivity"}]}

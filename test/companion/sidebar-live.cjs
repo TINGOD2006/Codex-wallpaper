@@ -1,0 +1,46 @@
+const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict');
+const {SceneEngine}=require('../../src/scene-engine.cjs'),{createLibrary}=require('../../src/wallpaper/library.cjs'),{createStore}=require('../../src/wallpaper/store.cjs'),{createPresets}=require('../../src/wallpaper/presets.cjs');
+const {createAppearanceService}=require('../../src/companion/appearance-service.cjs'),{startControlServer}=require('../../src/companion/control-server.cjs'),{resolvePaths}=require('../../src/companion/paths.cjs'),{delay}=require('../../src/control.cjs');
+(async()=>{
+ const paths=resolvePaths({localAppData:await fs.mkdtemp(path.join(os.tmpdir(),'cw-sidebar-'))}),store=createStore(paths.data),library=createLibrary({dataRoot:paths.data});await library.scan();
+ const appearance=await createAppearanceService({store,library,presets:createPresets({store,library,dataRoot:paths.data}),chooseFile:async()=>({cancelled:true})});
+ const state={instanceId:'fixture',phase:'needs-launch',desired:{enabled:true},observed:{applied:false,appVersion:'99.1.2.3'},hosts:[],error:{code:'HOST_NEEDS_MANAGED_LAUNCH',message:'請正常退出後由管理器開啟。'}};
+ const server=await startControlServer({paths,supervisor:{instanceId:'fixture',snapshot:()=>state,enableWallpaper:async()=>{await appearance.controller.patch({enabled:true,wallpaper:{enabled:true}});state.desired={enabled:true,wallpaperEnabled:true};state.observed.applied=true},waitForExitAndLaunch:async()=>{state.pendingLaunch=true},reconnect:async()=>{state.error=null;state.observed.applied=true}},appearance,protect:async()=>{}}),engine=new SceneEngine({entry:library.get('builtin:miku'),width:1280,height:720,renderFps:20,runtimeRoot:paths.runtime});
+ try{
+  await engine.start();await engine.pause();await engine.client.send('Page.navigate',{url:server.issueBootstrap('/sidebar')});
+  async function until(expression){for(let n=0;n<60;n++){if(await engine.client.evaluate(expression))return;await delay(100)}throw Error('Sidebar state timeout: '+expression)}
+  await until(`document.querySelector('.cw-recovery-action')?.textContent==='退出後自動接回'`);
+  assert.equal(await engine.client.evaluate('location.hash'),'');
+  assert.equal(await engine.client.evaluate(`!!document.querySelector('[data-setting="performance.qualityMode"]')`),false);
+  await engine.client.evaluate(`document.querySelector('[data-setting="performance.powerSaving"]').click()`);
+  for(let n=0;n<50&&(await store.load()).performance.powerSaving!==true;n++)await delay(100);
+  assert.equal((await store.load()).performance.powerSaving,true);assert.equal((await store.load()).performance.qualityMode,'fixed');
+  await engine.client.evaluate(`document.querySelector('[data-setting="performance.powerSaving"]').click()`);
+  for(let n=0;n<50&&(await store.load()).performance.powerSaving!==false;n++)await delay(100);
+  const sceneDirectory=path.join(paths.data,'scene-fixture');await fs.mkdir(sceneDirectory,{recursive:true});await fs.writeFile(path.join(sceneDirectory,'project.json'),JSON.stringify({type:'scene',title:'Own static scene fixture'}));await fs.writeFile(path.join(sceneDirectory,'scene.pkg'),'fixture');await library.addRoot(sceneDirectory);const scene=library.cards(await store.load()).find(c=>c.kind==='scene');assert.ok(scene);await appearance.controller.select(scene.id);
+  await until(`document.getElementById('cw-scene-controls')?.hidden===false&&document.querySelector('[data-setting="playback.sceneLive"]')?.checked===true`);
+  await engine.client.evaluate(`document.querySelector('#cw-tab-playback').click()`);
+  await engine.client.evaluate(`document.querySelector('[data-setting="playback.sceneLive"]').click()`);
+  for(let n=0;n<50&&(await store.load()).playback.sceneLive!==false;n++)await delay(100);assert.equal((await store.load()).playback.sceneLive,false);
+  await engine.client.evaluate(`document.querySelector('[data-setting="playback.sceneLive"]').click()`);
+  for(let n=0;n<50&&(await store.load()).playback.sceneLive!==true;n++)await delay(100);assert.equal((await store.load()).playback.sceneLive,true);
+  for(const fps of [15,30,60]){await engine.client.evaluate(`document.querySelector('[data-scene-fps="${fps}"]').click()`);for(let n=0;n<50&&(await store.load()).playback.renderFps!==fps;n++)await delay(100);const saved=await store.load();assert.equal(saved.playback.renderFps,fps);assert.equal(saved.playback.displayFps,fps);assert.equal(saved.performance.qualityMode,'fixed')}
+  const before=JSON.stringify(await store.load());
+  await engine.client.evaluate(`document.querySelector('.cw-recovery-action').click()`);
+  await until(`document.querySelector('.cw-recovery-action')?.textContent==='等待正常退出'`);
+  assert.equal(await engine.client.evaluate(`document.querySelector('.cw-recovery-action').disabled`),true);
+  assert.equal(JSON.stringify(await store.load()),before);
+  state.pendingLaunch=false;state.error={code:'RENDERER_FAILED',message:'渲染失敗'};
+  await until(`document.querySelector('.cw-recovery-action')?.textContent==='重試連線'`);
+  await engine.client.evaluate(`document.querySelector('.cw-recovery-action').click()`);
+  await until(`document.querySelector('.cw-recovery-action')?.hidden===true`);
+  assert.equal(JSON.stringify(await store.load()),before);
+  await appearance.controller.patch({enabled:false,wallpaper:{enabled:false}});state.desired={enabled:false,wallpaperEnabled:false};
+  await until(`document.querySelector('.cw-recovery-action')?.textContent==='啟用桌布'`);
+  await engine.client.evaluate(`document.querySelector('.cw-recovery-action').click()`);
+  await until(`document.querySelector('.cw-recovery-action')?.hidden===true`);
+  assert.equal((await store.load()).enabled,true);assert.equal((await store.load()).wallpaper.enabled,true);
+  await server.close();await until(`document.body.dataset.offline==='true'`);
+  console.log(JSON.stringify({pass:true,sidebarActions:true,enableBothSwitches:true,sceneSwitchAndFps:true,pendingExit:true,reconnect:true,settingsUnchanged:true,offlineDetected:true,bootstrapRemoved:true}));
+ }finally{await server.close();await engine.close();await appearance.close();await library.close()}
+})().catch(e=>{console.error(e.stack);process.exitCode=1});

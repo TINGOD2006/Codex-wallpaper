@@ -1,0 +1,655 @@
+{
+  "wallpaper050": {
+    "date": "2026-10-30",
+    "appVersion": "26.1023.6621.0",
+    "automatedNodeTests": 70,
+    "existingProfile": "six-surface-materials-and-decoded-frame-rate-passed",
+    "originalAppRestarted": false,
+    "materialRegions": [
+      "chat",
+      "sidebar",
+      "composer",
+      "titlebar",
+      "panels",
+      "overlays"
+    ],
+    "nativeGeometryAndForeground": "preserved",
+    "nativePauseResume": "passed",
+    "syntheticMaterialRestoration": "passed",
+    "panelWidths": [
+      1536,
+      1280,
+      360
+    ],
+    "hostCsp": "unchanged",
+    "scenePerformance": {
+      "width": 1920,
+      "height": 1020,
+      "jpegQuality": 92,
+      "baselineConfiguredFps": 13,
+      "baselineActualFps": 10.1,
+      "configuredFps": 30,
+      "decodedLoads": 299,
+      "decodedFps": 29.59,
+      "capture": "latest-only-screencast",
+      "displayScheduling": "capture-event"
+    },
+    "longRunningFullResolution": "passed",
+    "inducedCropRecovery": "passed",
+    "videoFramingAllEdges": "passed",
+    "manualNativeChatInteractions": "not-tested-in-0.5.0",
+    "allNativeMenusAndWorkshopCompatibility": "not-tested"
+  },
+  "wallpaper040": {
+    "date": "2026-10-29",
+    "appVersion": "26.1023.6621.0",
+    "automatedNodeTests": 64,
+    "windowsIdentityCases": 8,
+    "independentLauncher": "passed",
+    "existingProfile": "panel-observed-and-two-viewports-passed-before-user-restart",
+    "currentOriginalConnection": "general-launch-requires-wallpaper-entry",
+    "isolatedNativeAcceptance": "passed",
+    "viewports": [
+      "1536x816",
+      "1280x720",
+      "360x720"
+    ],
+    "nativePalette": "dark-light-css-branches-preserved",
+    "hostCsp": "unchanged",
+    "imageSceneVideo": "passed",
+    "nativeMinimizeRestore": "passed-in-isolated",
+    "scenePerformance": {
+      "renderFps": 30,
+      "displayFps": 10.7,
+      "width": 1024,
+      "height": 660
+    },
+    "independentReviewImportantFindings": "six-fixed-with-regressions",
+    "videoFramingAllEdges": "passed",
+    "posterQueueShutdown": "passed",
+    "manualChatInteractions": "not-tested-in-0.4.0",
+    "allWorkshopCompatibility": "not-tested"
+  },
+  "appVersion": "26.1027.3384.0",
+  "isolatedLogin": "passed",
+  "isolatedCodex": "shell-passed",
+  "isolatedChatGPT": "shell-passed",
+  "existingProfile": "not-applied-HOST_TRANSPORT_UNAVAILABLE",
+  "note": "wallpaper060 is current scoped acceptance; older entries are historical and do not establish current application.",
+  "lastLiveValidation": "2026-10-27T07:21:52.669Z",
+  "localEvidenceDirectory": ".state/validation/",
+  "windowsLifecycle": {
+    "debuggingPortClosed": true,
+    "disableConfirmed": true,
+    "existingModeProtection": "passed",
+    "originalProcessesUnaffected": true,
+    "configurationUpdate": true,
+    "repeatedStartReusedProcess": true
+  },
+  "authenticatedInteractions": {
+    "chatgptConversationPage": "shell-passed",
+    "chatgptScroll": "user-confirmed",
+    "codexWorkConversation": "not-tested",
+    "chatgptUnsentInput": "user-confirmed",
+    "messageSending": "not-tested"
+  },
+  "automatedNodeTests": 98,
+  "windowsIdentityCases": 8,
+  "doubleClickLauncher": "passed",
+  "versionResults": {
+    "26.1023.6123.0": {
+      "existingProfile": "launch-theme-and-toggle-presence-observed",
+      "isolatedChatGPT": "not-tested",
+      "isolatedCodex": "shell-passed",
+      "lastLiveValidation": "2026-10-28T06:49:56.4402248Z",
+      "isolatedLogin": "not-tested",
+      "inAppToggle": {
+        "clickOffOn": "passed",
+        "mode": "Isolated",
+        "unchangedGeometry": "passed",
+        "originalProfile": "not-tested",
+        "viewports": [
+          "1280x720",
+          "1536x816"
+        ],
+        "offSurvivesReload": "passed"
+      },
+      "readabilityRefinement": {
+        "applied": true,
+        "mainGeometry": [
+          1192,
+          768
+        ],
+        "composerGeometry": [
+          736,
+          98
+        ],
+        "leftOffsetCssPx": 64
+      },
+      "webwallglScene": {
+        "mode": "Existing",
+        "engine": "WebWallGL 3.0.0",
+        "displayFps": 11.2,
+        "geometryUnchanged": true,
+        "renderFps": 30,
+        "sceneId": "3172471800",
+        "originalStaticLiveCycle": "passed",
+        "pauseResume": "passed",
+        "nativeMinimize": "implementation-present-not-manually-tested",
+        "hostCspUnchanged": true,
+        "liveFrames": "passed"
+      }
+    }
+  },
+  "independentLauncher": {
+    "sameDesktopSession": "passed",
+    "originalProfileAcceptance": "not-tested",
+    "workerContinuesAfterParentExit": "passed",
+    "parentExitSurvival": "passed"
+  },
+  "wallpaper060": {
+    "date": "2026-10-31",
+    "hostVersion": "26.1027.3384.0",
+    "managerIndependent": true,
+    "actualPhase": "active",
+    "errorCode": null,
+    "applied": true,
+    "automatedNodeTests": 93,
+    "windowsIdentityCases": 8,
+    "installerAndLifecycle": "passed",
+    "repeatedPrivateAcl": "passed",
+    "pluginTools": "discovered-in-current-chat-status-called",
+    "installedPluginStdio": "six-tools-status-and-resource-passed",
+    "pluginView": null,
+    "threadEntrypoint": "declared-awaiting-current-host-reload",
+    "nativeBrowserPanel": "user-confirmed-visible-but-not-required-button-interaction",
+    "materialGeometry": "six-regions-fixture-passed",
+    "decodedFps": 27.635065194039267,
+    "captureFixture": {
+      "width": 1920,
+      "height": 1020,
+      "jpegQuality": 92,
+      "durationSeconds": 16,
+      "samplesFps": [
+        18,
+        26.1,
+        28.4,
+        22.4
+      ],
+      "cropRecovery": true,
+      "pauseResume": true
+    },
+    "originalAppForceClosed": false,
+    "unverified": [
+      "current-native-materials",
+      "native-MCP-App-view",
+      "native-chat-interactions"
+    ],
+    "attachedCaption": {
+      "implemented": true,
+      "userConfirmed": true,
+      "hostVersion": "26.1027.3384.0",
+      "dpiScale": 1.25,
+      "minimizeLeft": 1749,
+      "buttonBounds": [
+        1603,
+        5,
+        1741,
+        40
+      ],
+      "sidebarCssWidth": 420,
+      "geometryTests": "four-DPI-negative-origin-passed",
+      "webViewFixture": "five-tabs-move-maximize-minimize-restore-reopen-host-survives-passed",
+      "oldPanelReused": true,
+      "hostFilesModified": false,
+      "requiresBackgroundEndpoint": false
+    },
+    "adapterVersion": "1.0.1",
+    "adapterCompatibility": "structural",
+    "nativeBackground": "user-confirmed-visible",
+    "decodedMeasurement": {
+      "loads": 291,
+      "seconds": 10.530100000008941,
+      "width": 1024,
+      "height": 660,
+      "display": [
+        1536,
+        816
+      ],
+      "sameLayerRetained": true
+    },
+    "endpointDiscovery": "null-state-listener-and-unique-owner-regression-passed",
+    "nativeQuestionEditors": "classified-with-unknown-editors-rejected",
+    "atomicStylesGuard": "required-structure-and-document-checked-dynamic-button-count-accepted",
+    "externalEntry": "no-second-injected-panel",
+    "normalLaunchErrorVisible": "api-and-browser-fixture-passed",
+    "currentSettingsPreserved": true
+  },
+  "qualityRepair20261101": {
+    "date": "2026-11-01",
+    "automatedNodeTests": 98,
+    "configuredSource": [
+      1920,
+      1020
+    ],
+    "freshResetDefault": [
+      1920,
+      1080
+    ],
+    "savedManualSizePreserved": true,
+    "fixedQuality": {
+      "renderDpr": 1,
+      "videoTexScale": 1,
+      "particles": "high",
+      "postProcessing": "high",
+      "autoQuality": false,
+      "preserveDrawingBuffer": false
+    },
+    "realRendererFullSizeFallback": "passed-and-owned-image-visually-checked",
+    "realRendererPauseResume": "passed",
+    "materialsBrowserFixture": "passed",
+    "transportArgumentCandidate": "rejected-no-stable-benchmark-gain",
+    "dshSource": {
+      "version": "1.3.3",
+      "settings": 142,
+      "existingMappings": 13,
+      "partialMappings": 24,
+      "pendingOrHostRewrites": 105,
+      "engineBundleMatches": true
+    },
+    "architectureSpec": "awaiting-written-review",
+    "nativeBefore": {
+      "loads": 277,
+      "seconds": 10.1757,
+      "decodedFps": 27.221714476645467,
+      "dimensions": [
+        1920,
+        1020
+      ]
+    },
+    "nativeAfter": {
+      "phase": "active",
+      "errorCode": null,
+      "applied": true,
+      "decodedFps": 29.789810907947864,
+      "loads": 305,
+      "seconds": 10.238400000002235,
+      "dimensions": [
+        1920,
+        1020
+      ],
+      "cpuSeconds": 32.859375,
+      "cpuSampleSeconds": 15.0993017,
+      "workingSetMiB": 1349.13671875,
+      "scope": "manager-and-owned-scene-edge-only"
+    },
+    "performanceGainClaimed": false,
+    "unverified": [
+      "long-term-resource-savings",
+      "renderer-pool-and-persistent-cache",
+      "direct-GPU-surface",
+      "all-DSH-features"
+    ],
+    "lateHandoffDoesNotArmFutureReopen": "regression-passed",
+    "comparisonLimits": "short-samples-at-different-times; working-set-increased; no-fixed-long-term-gain-claim"
+  },
+  "rendererPool070": {
+    "date": "2026-11-01",
+    "version": "0.7.0",
+    "automatedNodeTests": 156,
+    "engineVersion": "3.0.0",
+    "engineHash": "2f86ab955f3377e2fa2cfd5ffa72f5813fe8f6e4a272295fed36f4c1e626b1e5",
+    "benchmark": {
+      "schemaVersion": 1,
+      "hostVersion": null,
+      "hostKind": "own blank headless Edge receiver",
+      "browserVersion": "Edg/156.0.4314.58",
+      "samples": [
+        {
+          "backend": "isolated",
+          "sample": 1,
+          "rendererVersion": "3.0.0",
+          "requested": {
+            "width": 1920,
+            "height": 1020
+          },
+          "outputSize": {
+            "width": 1920,
+            "height": 1020
+          },
+          "quality": {
+            "renderDpr": 1,
+            "videoTexScale": 1,
+            "particles": "high",
+            "postProcessing": "high",
+            "autoQuality": false,
+            "jpeg": 92
+          },
+          "decodedFps": 25.446988470104486,
+          "decodeSeconds": 16.50489999999106,
+          "loadMs": 3696,
+          "cacheHits": 0,
+          "cacheStorageHits": null,
+          "renderFps": 30,
+          "captureFps": 30,
+          "resources": {
+            "receiver": {
+              "workingSetBytes": 1536966070.857143,
+              "cpuSeconds": 17.359375,
+              "processCount": 11
+            },
+            "durationSeconds": 16.6867917,
+            "renderer": {
+              "workingSetBytes": 1073037019.4285715,
+              "cpuSeconds": 31.453125,
+              "processCount": 12
+            },
+            "managerCpuSeconds": 7.749,
+            "combinedCpuSeconds": 39.202125,
+            "managerWorkingSetBytes": 99627008,
+            "cpuScope": "benchmark Node manager + its renderer process tree; blank receiver listed separately"
+          }
+        },
+        {
+          "backend": "pool",
+          "sample": 1,
+          "rendererVersion": "3.0.0",
+          "requested": {
+            "width": 1920,
+            "height": 1020
+          },
+          "outputSize": {
+            "width": 1920,
+            "height": 1020
+          },
+          "quality": {
+            "renderDpr": 1,
+            "videoTexScale": 1,
+            "particles": "high",
+            "postProcessing": "high",
+            "autoQuality": false,
+            "jpeg": 92
+          },
+          "decodedFps": 24.34917442973704,
+          "decodeSeconds": 16.50979999999702,
+          "loadMs": 11883,
+          "cacheHits": 0,
+          "cacheStorageHits": 0,
+          "renderFps": 30,
+          "captureFps": 29.5,
+          "resources": {
+            "receiver": {
+              "workingSetBytes": 2383465325.714286,
+              "cpuSeconds": 18.328125,
+              "processCount": 10
+            },
+            "durationSeconds": 16.7609738,
+            "renderer": {
+              "workingSetBytes": 1282012891.4285715,
+              "cpuSeconds": 32.859375,
+              "processCount": 12
+            },
+            "managerCpuSeconds": 6.891,
+            "combinedCpuSeconds": 39.750375,
+            "managerWorkingSetBytes": 143257600,
+            "cpuScope": "benchmark Node manager + its renderer process tree; blank receiver listed separately"
+          }
+        },
+        {
+          "backend": "isolated",
+          "sample": 2,
+          "rendererVersion": "3.0.0",
+          "requested": {
+            "width": 1920,
+            "height": 1020
+          },
+          "outputSize": {
+            "width": 1920,
+            "height": 1020
+          },
+          "quality": {
+            "renderDpr": 1,
+            "videoTexScale": 1,
+            "particles": "high",
+            "postProcessing": "high",
+            "autoQuality": false,
+            "jpeg": 92
+          },
+          "decodedFps": 24.161171362662454,
+          "decodeSeconds": 16.51409999999404,
+          "loadMs": 3957,
+          "cacheHits": 0,
+          "cacheStorageHits": null,
+          "renderFps": 30,
+          "captureFps": 29.9,
+          "resources": {
+            "renderer": {
+              "workingSetBytes": 1172999021.7142856,
+              "processCount": 12,
+              "cpuSeconds": 35.359375
+            },
+            "durationSeconds": 16.8671262,
+            "receiver": {
+              "workingSetBytes": 3085921718.857143,
+              "processCount": 10,
+              "cpuSeconds": 19.0625
+            },
+            "managerCpuSeconds": 6.89,
+            "combinedCpuSeconds": 42.249375,
+            "managerWorkingSetBytes": 157351936,
+            "cpuScope": "benchmark Node manager + its renderer process tree; blank receiver listed separately"
+          }
+        },
+        {
+          "backend": "pool",
+          "sample": 2,
+          "rendererVersion": "3.0.0",
+          "requested": {
+            "width": 1920,
+            "height": 1020
+          },
+          "outputSize": {
+            "width": 1920,
+            "height": 1020
+          },
+          "quality": {
+            "renderDpr": 1,
+            "videoTexScale": 1,
+            "particles": "high",
+            "postProcessing": "high",
+            "autoQuality": false,
+            "jpeg": 92
+          },
+          "decodedFps": 27.880254006652557,
+          "decodeSeconds": 16.535,
+          "loadMs": 1845,
+          "cacheHits": 2,
+          "cacheStorageHits": 2,
+          "renderFps": 30,
+          "captureFps": 29.5,
+          "resources": {
+            "renderer": {
+              "cpuSeconds": 30.921875,
+              "workingSetBytes": 1121417216,
+              "processCount": 11
+            },
+            "durationSeconds": 16.3404618,
+            "receiver": {
+              "cpuSeconds": 18.75,
+              "workingSetBytes": 3844551826.285714,
+              "processCount": 10
+            },
+            "managerCpuSeconds": 6.235,
+            "combinedCpuSeconds": 37.156875,
+            "managerWorkingSetBytes": 156848128,
+            "cpuScope": "benchmark Node manager + its renderer process tree; blank receiver listed separately"
+          }
+        },
+        {
+          "backend": "isolated",
+          "sample": 3,
+          "rendererVersion": "3.0.0",
+          "requested": {
+            "width": 1920,
+            "height": 1020
+          },
+          "outputSize": {
+            "width": 1920,
+            "height": 1020
+          },
+          "quality": {
+            "renderDpr": 1,
+            "videoTexScale": 1,
+            "particles": "high",
+            "postProcessing": "high",
+            "autoQuality": false,
+            "jpeg": 92
+          },
+          "decodedFps": 26.32869101010435,
+          "decodeSeconds": 16.52190000000596,
+          "loadMs": 3993,
+          "cacheHits": 0,
+          "cacheStorageHits": null,
+          "renderFps": 30,
+          "captureFps": 29.8,
+          "resources": {
+            "receiver": {
+              "processCount": 10,
+              "workingSetBytes": 1305127204.5714285,
+              "cpuSeconds": 18
+            },
+            "durationSeconds": 16.6257955,
+            "renderer": {
+              "processCount": 12,
+              "workingSetBytes": 1025020196.5714285,
+              "cpuSeconds": 31.203125
+            },
+            "managerCpuSeconds": 6.281,
+            "combinedCpuSeconds": 37.484125,
+            "managerWorkingSetBytes": 158629888,
+            "cpuScope": "benchmark Node manager + its renderer process tree; blank receiver listed separately"
+          }
+        },
+        {
+          "backend": "pool",
+          "sample": 3,
+          "rendererVersion": "3.0.0",
+          "requested": {
+            "width": 1920,
+            "height": 1020
+          },
+          "outputSize": {
+            "width": 1920,
+            "height": 1020
+          },
+          "quality": {
+            "renderDpr": 1,
+            "videoTexScale": 1,
+            "particles": "high",
+            "postProcessing": "high",
+            "autoQuality": false,
+            "jpeg": 92
+          },
+          "decodedFps": 26.279935813981652,
+          "decodeSeconds": 16.5145,
+          "loadMs": 2097,
+          "cacheHits": 2,
+          "cacheStorageHits": 4,
+          "renderFps": 30,
+          "captureFps": 30.1,
+          "resources": {
+            "renderer": {
+              "processCount": 11,
+              "cpuSeconds": 31.984375,
+              "workingSetBytes": 1105824036.5714285
+            },
+            "receiver": {
+              "processCount": 10,
+              "cpuSeconds": 18.59375,
+              "workingSetBytes": 2198491428.571429
+            },
+            "durationSeconds": 16.6753341,
+            "managerCpuSeconds": 6.187,
+            "combinedCpuSeconds": 38.171375,
+            "managerWorkingSetBytes": 94814208,
+            "cpuScope": "benchmark Node manager + its renderer process tree; blank receiver listed separately"
+          }
+        }
+      ],
+      "medians": {
+        "isolatedFps": 25.446988470104486,
+        "poolFps": 26.279935813981652,
+        "fpsRatio": 1.032732649085597,
+        "cpuRatio": 0.97437581511882,
+        "memoryRatio": 1.0799351604514347
+      },
+      "gate": {
+        "fullQuality": true,
+        "fps": true,
+        "cpu": true,
+        "memory": true,
+        "passed": true
+      },
+      "unverified": [
+        "Original Codex receiver performance measured separately; this fixture contains no chats"
+      ]
+    },
+    "cache": {
+      "payloadBytes": 4036154,
+      "indexBytes": 4036154,
+      "managedLimitBytes": 536870912,
+      "restartEngineHits": 2,
+      "restartCacheStorageHits": 2,
+      "quotaPinnedEpochCorruptionAndPutFailure": "passed"
+    },
+    "nativeFixtures": {
+      "ownedProfileBusy": "passed",
+      "twoContentOneControl": "passed",
+      "rendererCrashRecovery": "passed",
+      "portraitLandscapeVideo": "passed",
+      "cancelledPreparation": "passed",
+      "occupiedOriginFallback": "passed",
+      "panelWidths": [
+        375,
+        768,
+        1536
+      ],
+      "performanceControls": "passed",
+      "cacheClearCommand": "passed",
+      "materialsRestore": "passed",
+      "managerLifecycle": "passed",
+      "installUpdateUninstallPreservesData": "passed",
+      "mcpAppHandshake": "passed",
+      "captionLeftOfMinimizeFiveTabsAndWindowTracking": "passed",
+      "pooledControllerActualDecode": "passed",
+      "hiddenPauseResume": "passed",
+      "physicalResizePreservesManualSettings": "passed",
+      "managerExitRestoresOwnStylesPreservesReceiver": "passed"
+    },
+    "deployment": {
+      "installedVersion": "0.7.0",
+      "pluginId": "codex-wallpaper-control@codex-wallpaper-local",
+      "pluginInstalledVersion": "0.7.0",
+      "pluginEnabled": true,
+      "managerRunning": true,
+      "desiredEnabled": true,
+      "observedApplied": false,
+      "hostVersion": "26.1027.3384.0",
+      "errorCode": "HOST_NEEDS_MANAGED_LAUNCH",
+      "schemaVersion": 2,
+      "legacyPreferencesPreserved": true,
+      "legacyManualSize": {
+        "width": 1920,
+        "height": 1020
+      },
+      "firstStartup": "RUNTIME_MISSING; exported diagnostic and subsequent normal launcher succeeded; original cause not reproduced",
+      "currentChatPluginReload": "not forced; next normal host reload may be required",
+      "rawByteMigrationBackupVerified": true
+    },
+    "unverified": [
+      "Original Codex 26.1027.3384.0 currently launched without managed endpoint; applied false",
+      "Physical native minimize/restore and native chat interactions in 0.7.0",
+      "All Workshop scenes, codecs and remaining DSH features"
+    ]
+  }
+}

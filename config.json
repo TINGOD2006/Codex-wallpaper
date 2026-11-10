@@ -1,0 +1,13 @@
+{
+  "backgroundPath": "assets/miku-background.png",
+  "positionX": 100,
+  "overlayOpacity": 0.84,
+  "palette": {
+    "surface": "#182630",
+    "panel": "#20333f",
+    "text": "#edf4f6",
+    "muted": "#b7c8d0",
+    "accent": "#a3cfcc",
+    "selection": "#304d5b"
+  }
+}

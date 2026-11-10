@@ -1,0 +1,6 @@
+function guardHook(callback,report){return(...args)=>{try{return Promise.resolve(callback(...args)).catch(()=>{try{report('HOOK_RUNTIME_UNSUPPORTED')}catch{}})}catch{try{report('HOOK_RUNTIME_UNSUPPORTED')}catch{}}}}
+function boot({register,loadOriginal,report}){try{register()}catch(e){try{report(['HOOK_PAYLOAD_MISSING','HOOK_HASH_MISMATCH'].includes(e.code)?e.code:'HOOK_RUNTIME_UNSUPPORTED')}catch{}}return loadOriginal()}
+function renderBootstrap(config){
+ return `'use strict';\nconst path=require('node:path'),fs=require('node:fs'),Module=require('node:module');\nconst mount=${JSON.stringify(config)};\n${boot.toString()}\nfunction report(code,details={}){try{fs.appendFileSync(mount.reportFile,JSON.stringify({event:code,pid:process.pid,...details})+'\\n')}catch{}}\nreport('BOOT_ENTER');\nconst original=path.resolve(__dirname,'..',mount.originalEntry);\nconst result=boot({register(){const broker=require(mount.brokerPath||'./host-broker.cjs');broker.registerHostHooks({...mount,report})},report,loadOriginal(){report('ORIGINAL_LOAD');return Module._load(original,null,true)}});\nreport('ORIGINAL_RETURN',{originalMain:process.mainModule?.filename===original});\nmodule.exports=result;\n`;
+}
+module.exports={boot,guardHook,renderBootstrap};

@@ -1,0 +1,3 @@
+# Native helper provenance hashes cover exact source bytes.
+# Preserve bytes across checkout platforms; never normalize signed inputs.
+* -text

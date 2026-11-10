@@ -1,0 +1,12 @@
+.state/
+*.tmp
+node_modules/
+dist/
+logs/
+runtime/
+data/
+*.log
+*.lnk
+.env
+.env.*
+scene.json

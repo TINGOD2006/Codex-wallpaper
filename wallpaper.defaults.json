@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "enabled": true,
+  "wallpaper": {"enabled": true,"selectedId": null},
+  "reading": {"opacity":1,"brightness":1,"contrast":1,"saturation":1,"blur":0,"scrim":0.84,"x":50,"y":50,"offsetX":0,"offsetY":0,"scale":1,"flip":false,"fit":"cover","maskColor":null},
+  "materials": {"chat":{"enabled":false,"alpha":0.9,"blur":8,"border":0.12},"sidebar":{"enabled":false,"alpha":0.9,"blur":8,"border":0.12},"composer":{"enabled":false,"alpha":0.9,"blur":8,"border":0.12},"titlebar":{"enabled":false,"alpha":0.5,"blur":0,"border":0},"panels":{"enabled":false,"alpha":0.55,"blur":0,"border":0.1},"overlays":{"enabled":false,"alpha":0.85,"blur":0,"border":0.12}},
+  "colors": {"enabled":false,"palette":{"surface":"#182630","panel":"#20333f","text":"#edf4f6","muted":"#b7c8d0","accent":"#a3cfcc","selection":"#304d5b"}},
+  "playback": {"sceneLive":true,"paused":false,"muted":true,"volume":0,"renderFps":30,"displayFps":30,"width":1920,"height":1080,"pauseWhenHidden":true,"playlist":[],"rotationEnabled":false,"rotationSeconds":300},
+  "library": {"roots":[],"favorites":[],"hidden":[]},
+  "presets": {"activeId":null},
+  "performance": {"rendererMode":"auto","resolutionMode":"window","qualityMode":"fixed","cacheEnabled":true,"powerSaving":false}
+}

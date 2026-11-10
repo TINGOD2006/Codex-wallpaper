@@ -1,0 +1,6 @@
+{
+ "name":"codex-wallpaper-control","version":"0.7.0",
+ "description":"Control the independent Windows wallpaper companion and inspect live compatibility errors.",
+ "author":{"name":"Codex Wallpaper"},"skills":"./skills","mcpServers":"./.mcp.json",
+ "interface":{"displayName":"Codex Wallpaper","shortDescription":"桌布管理與更新診斷","longDescription":"開啟獨立管理器、調整桌布，查看實際連線與版本相容狀態。","developerName":"Codex Wallpaper","category":"Productivity","capabilities":["Interactive","Read","Write"],"logo":"./assets/wallpaper.svg","composerIcon":"./assets/wallpaper.svg","defaultPrompt":"查看桌布管理器的實際連線狀態。"}
+}

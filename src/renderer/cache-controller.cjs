@@ -1,0 +1,21 @@
+const fs=require('node:fs'),path=require('node:path'),{createHash,randomUUID}=require('node:crypto');
+const {delay}=require('../control.cjs'),{renderError}=require('./errors.cjs');
+function createCacheController({browser,origin,clock=Date.now,limitBytes=512*1024*1024,verificationMode=false,qualifiedEngineHash=null}={}){
+ if(!Number.isSafeInteger(limitBytes)||limitBytes<1||limitBytes>512*1024*1024)throw new TypeError('Invalid cache limit');
+ const engineHash=createHash('sha256').update(fs.readFileSync(path.resolve(__dirname,'../../assets/webwallgl/webwallgl.global.min.js'))).digest('hex'),managerId=randomUUID();
+ let desired=true,target,controlJob,timer,closed=false,pins=[],last={usedBytes:0,indexBytes:0,payloadBytes:null,limitBytes,entries:0,stored:0,readHits:0,epoch:0},reason='CACHE_UNVERIFIED';const qualified=qualifiedEngineHash===engineHash;
+ const wantsWrites=()=>desired&&(qualified||verificationMode),normalReason=()=>!desired?'CACHE_DISABLED':last.fault||(verificationMode?'CACHE_VERIFYING':qualified?null:'CACHE_UNVERIFIED');
+ const call=(method,value)=>target.client.evaluate(`CodexBakeCache.${method}(${JSON.stringify(value)})`);
+ async function ensureControl(){
+  if(closed)throw renderError('POOL_CLOSED');if(target?.client.connected)return;if(controlJob)return controlJob;
+  controlJob=(async()=>{await browser.start();target=await browser.openTarget({url:origin.openControl(),width:800,height:600,role:'control'});let available=false;for(let i=0;i<60;i++){if(await target.client.evaluate('!!window.CodexBakeCache&&!!navigator.locks&&!!window.indexedDB&&!!window.caches')){available=true;break}await delay(50)}if(!available)throw renderError('CACHE_UNAVAILABLE');last=await call('configure',{managerId,limitBytes,writesEnabled:wantsWrites()});reason=verificationMode?'CACHE_VERIFYING':qualified?null:'CACHE_UNVERIFIED';clearInterval(timer);timer=setInterval(()=>setPins(pins).catch(()=>{reason='CACHE_UNAVAILABLE'}),1000);timer.unref?.()})();try{await controlJob}catch(error){reason='CACHE_UNAVAILABLE';await target?.close().catch(()=>{});target=null;if(error.code==='OWNER_MISMATCH')throw error;throw renderError('CACHE_UNAVAILABLE',error)}finally{controlJob=null}
+ }
+ async function configure(performance){if(typeof performance?.cacheEnabled!=='boolean')throw new TypeError('Invalid cache preference');const changed=desired!==performance.cacheEnabled;desired=performance.cacheEnabled;if(!desired)reason='CACHE_DISABLED';else reason=qualified?null:'CACHE_UNVERIFIED';if(changed&&target?.client.connected){last=await call('configure',{managerId,limitBytes,writesEnabled:wantsWrites()});await setPins(pins)}}
+ async function setPins(value){pins=[...new Set(value)];if(target?.client.connected)await target.client.evaluate(`CodexBakeCache.heartbeat(${JSON.stringify(managerId)},${JSON.stringify(pins)})`)}
+ async function leasePolicy(identity){if(!desired||(!qualified&&!verificationMode))return {enabled:false,epoch:last.epoch,engineHash,reason:desired?'CACHE_UNVERIFIED':'CACHE_DISABLED'};try{await ensureControl();await refresh();if(last.fault||reason==='CACHE_UNAVAILABLE')throw renderError('CACHE_UNAVAILABLE');return {enabled:true,epoch:last.epoch,entryFingerprint:identity.entryFingerprint,cacheName:'webwallgl-bake-v1',limitBytes,engineHash,managerId}}catch(error){if(verificationMode||error.code==='OWNER_MISMATCH')throw error;return {enabled:false,epoch:last.epoch,engineHash,reason:'CACHE_UNAVAILABLE'}}}
+ function snapshot(){return {...last,requestedCacheEnabled:desired,effectiveCacheEnabled:!!(desired&&qualified&&target?.client.connected&&!reason),reason:reason||null}}
+ async function refresh({audit=false}={}){if(target?.client.connected)try{last=await call('snapshot',audit);reason=normalReason()}catch(error){if(error.code==='OWNER_MISMATCH')throw error;reason='CACHE_UNAVAILABLE'}return snapshot()}
+ async function clear(){await ensureControl();const result=await call('clear',managerId);await refresh({audit:true});return result}
+ return {configure,leasePolicy,snapshot,refresh,clear,setPins,engineHash,async close(){if(closed)return;closed=true;clearInterval(timer);await controlJob?.catch(()=>{});if(target?.client.connected)await call('suspend',managerId).catch(()=>{});await target?.close();target=null}};
+}
+module.exports={createCacheController};

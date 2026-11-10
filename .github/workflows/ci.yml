@@ -1,0 +1,23 @@
+name: Windows validation
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:companion
+      - name: Native activation and startup fixtures
+        shell: pwsh
+        run: |
+          foreach ($test in @('windows-entry-hint', 'windows-entry-feedback', 'windows-native-activation', 'windows-boot-visibility')) {
+            & pwsh -NoProfile -File "test/$test.Tests.ps1"
+            if ($LASTEXITCODE -ne 0) { throw "Failed: $test" }
+          }

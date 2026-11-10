@@ -1,0 +1,4 @@
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const {createRecovery}=require('../../src/renderer/recovery.cjs');
+test('restarts are bounded to three in five minutes and exhaustion requires explicit retry',()=>{let now=0;const recovery=createRecovery({now:()=>now});for(const delay of [500,1000,2000]){assert.equal(recovery.allowRestart(),true);assert.equal(recovery.delayMs(),delay)}assert.equal(recovery.allowRestart(),false);now=600000;assert.equal(recovery.allowRestart(),false);recovery.resetByUser();assert.equal(recovery.allowRestart(),true);assert.equal(recovery.snapshot().remaining,2)});
+test('a rolling window expires when the budget was not exhausted',()=>{let now=0;const recovery=createRecovery({now:()=>now});assert.equal(recovery.allowRestart(),true);now=300001;assert.equal(recovery.allowRestart(),true);assert.equal(recovery.snapshot().attempts,1)});

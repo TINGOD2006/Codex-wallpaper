@@ -1,0 +1,7 @@
+using System;using System.Diagnostics;using System.IO;using System.Web.Script.Serialization;using System.Windows.Forms;
+class BootWindowFixture {
+ [STAThread] static void Main(string[] args){if(args.Length!=3)return;string file=args[0],id=args[1];double readyAfter=double.Parse(args[2]);var watch=Stopwatch.StartNew();var form=new Form {Text="Wallpaper Boot Owned Fixture",Width=1000,Height=650,Left=100,Top=120,StartPosition=FormStartPosition.Manual};form.Controls.Add(new Label {Text="Owned test window — no chat content",Dock=DockStyle.Fill,TextAlign=System.Drawing.ContentAlignment.MiddleCenter});var json=new JavaScriptSerializer();System.Drawing.Rectangle initial=new System.Drawing.Rectangle();
+ Action write=()=>{using(var p=Process.GetCurrentProcess()){string value=json.Serialize(new {LaunchId=id,HostPid=p.Id,HostStartTime=p.StartTime.ToUniversalTime().Ticks.ToString(),HostPath=p.MainModule.FileName,Ready=readyAfter>=0&&watch.Elapsed.TotalSeconds>=readyAfter,Failed=false});string temp=file+".fixture-tmp";File.WriteAllText(temp,value);if(File.Exists(file))File.Replace(temp,file,null);else File.Move(temp,file);}};
+ var timer=new Timer {Interval=100};timer.Tick+=(s,e)=>{write();if(watch.Elapsed.TotalSeconds>50)form.Close();};form.Shown+=(s,e)=>{initial=form.Bounds;write();timer.Start();};form.FormClosed+=(s,e)=>{timer.Stop();File.WriteAllText(file+".fixture-result.json",json.Serialize(new {unchangedBounds=form.Bounds==initial,elapsedMs=watch.ElapsedMilliseconds}));};Application.Run(form);timer.Dispose();form.Dispose();
+ }
+}

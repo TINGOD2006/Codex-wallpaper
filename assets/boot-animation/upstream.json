@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/yushua0808-cpu/dragon-codex-boot",
+  "commit": "c63a203e5857e85fb3c8a9891eddb570e7a27b54",
+  "license": "MIT",
+  "adaptation": "Passive animation only; no app launch or shortcut integration; scoped PID/session readiness"
+}

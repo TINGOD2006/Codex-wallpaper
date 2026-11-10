@@ -1,0 +1,27 @@
+{
+  "name": "miku-desktop-theme",
+  "version": "0.7.0",
+  "private": true,
+  "description": "Independent wallpaper, materials and native-color customization for Windows Codex",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.cjs test/wallpaper/*.test.cjs test/companion/*.test.cjs test/host-adapters/*.test.cjs test/plugin/*.test.cjs test/renderer/*.test.cjs test/startup-hook/*.test.cjs",
+    "build:plugin": "node scripts/build-plugin.cjs",
+    "build:companion": "node scripts/build-companion.cjs",
+    "pretest": "node scripts/build-plugin.cjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "1.7.5",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@openai/mcp-extensions": "0.2.1",
+    "zod": "4.6.6"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  },
+  "overrides": {
+    "zod": "4.6.6"
+  }
+}
