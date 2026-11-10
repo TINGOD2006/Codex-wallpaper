@@ -14,10 +14,7 @@ function createPresets({dataRoot,store,library}){
  async function builtins(){
   const s=defaults(),make=(id,name,value)=>({id,builtin:true,doc:{schemaVersion:1,name,appearance:appearance(value)}});
   const normal=make('builtin:native','原生＋桌布',s);s.reading.scrim=.94;const reading=make('builtin:reading','閱讀優先',s);
-  s.reading.scrim=.78;for(const region of Object.values(s.materials)){region.enabled=true;region.alpha=.8}const glass=make('builtin:glass','輕玻璃',s);
-  const legacy=defaults();legacy.colors.enabled=true;legacy.reading.offsetX=-64;legacy.reading.x=100;
-  try{legacy.colors.palette=JSON.parse(await fs.readFile(path.join(dataRoot,'migration/legacy-palette.json'),'utf8'));validateSettings(legacy)}catch{legacy.colors.palette=defaults().colors.palette}
-  return [normal,reading,glass,make('builtin:legacy-miku','初音灰藍',legacy)];
+  return [normal,reading];
  }
  async function read(id){
   if(id.startsWith('builtin:')){const builtin=(await builtins()).find(p=>p.id===id);if(builtin)return builtin.doc}
