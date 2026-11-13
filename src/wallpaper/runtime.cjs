@@ -10,7 +10,7 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
  await client.evaluate(`(()=>{for(const id of ['miku-desktop-theme-v1','miku-live-scene-layer','miku-desktop-theme-toggle']){const n=document.getElementById(id);if(n&&n.dataset.owner!=='miku-desktop-theme')throw new Error('Legacy owner mismatch');n?.remove()}})()`);
  if(!mountPanel){assertResponsive();await client.evaluate(`(()=>{const p=window.__codexWallpaperPanel;if(p?.owner==='codex-wallpaper')p.dispose()})()`)}
  assertResponsive();
- const host=new Host(client,identity.appVersion),layout=detectLayout(await host.inspect(),identity.appVersion);if(!['codex','chatgpt'].includes(layout.kind))throw Object.assign(new Error(layout.reason),{code:'UNSUPPORTED_LAYOUT'});
+ const host=new Host(client,identity.appVersion),snapshot=await host.inspect(),layout=detectLayout(snapshot,identity.appVersion);if(!['codex','chatgpt'].includes(layout.kind))throw Object.assign(new Error(layout.reason),{code:'UNSUPPORTED_LAYOUT'});
  const store=services?.store||createStore(dataRoot),saved=await store.load(),library=services?.library||createLibrary({roots:roots??[...await discoverSteamRoots(),...saved.library.roots],dataRoot,runtimeRoot});if(!services?.library)await library.scan();
  try{
   if(!services)await migrateLegacy({projectRoot,dataRoot,resolveSelection:async source=>{
@@ -44,18 +44,23 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
   let placeholder;
   if(services&&saved.enabled&&saved.wallpaper.enabled&&host.validateImage){
    const entry=library.get(saved.wallpaper.selectedId);
-   if(entry&&!usesStill(entry,{...saved.playback,powerSaving:saved.performance.powerSaving}))try{
+   const staged=services.startupPlaceholder;
+   if(staged?.selectedId===saved.wallpaper.selectedId&&staged.documentToken===snapshot.documentToken)placeholder=staged;
+   if(placeholder){
+    // The earlier shell probe can show only a wallpaper. Apply the full appearance after the adapter passes.
+    assertResponsive();await host.apply(saved);
+   }else if(entry&&!usesStill(entry,{...saved.playback,powerSaving:saved.performance.powerSaving}))try{
     const image=await resolveSceneStill({entry,dataRoot,preloaded:await takeStartupImage(),validate:uri=>{assertResponsive();return host.validateImage(uri)}});
     if(image.source!=='empty'){
-     assertResponsive();await host.apply(saved);assertResponsive();if(await host.paint(image.uri)===false)throw Error('Startup image paint rejected');
-     assertResponsive();if(host.confirmImage&&!await host.confirmImage(image.uri))throw Error('Startup image decode failed');
-     if(['scene','video'].includes(entry.kind))placeholder={...image,selectedId:entry.id};
+     assertResponsive();await host.apply(saved);assertResponsive();if(await host.paint(image.uri,{decoded:true})===false)throw Error('Startup image paint rejected');
+     assertResponsive();if(!host.supportsDecodedPaint&&host.confirmImage&&!await host.confirmImage(image.uri))throw Error('Startup image decode failed');
+     placeholder={...image,selectedId:entry.id};
     }
    }catch{/* Optional cached image never substitutes for live-renderer validation. */}
   }
   assertResponsive();client.on?.('notification',resized);await controller.start({placeholder});controller.initialRequest?.then(saveCurrentFrame);assertResponsive();if(services?.appearance)await services.appearance.attach(controller,identity.generation);
   if(panel){const handler=services?.appearance?{dispatch:command=>services.appearance.dispatch(command),close(){}}:createCommandHandler({sessionId:identity.sessionId,panelId:panel.panelId,controller,library,presets,chooseFile:options=>chooseFile({...options,ownerPid:identity.pid})});await panel.mount(handler);await panel.update(await view(),library.cards(controller.settings),await presets.list())}assertResponsive();if(host.confirmApplied){confirmation=await host.confirmApplied(controller.settings);confirmedAt=Date.now()}
- }catch(e){client.off?.('notification',resized);await panel?.unmount();await controller.close();if(services?.appearance)await services.appearance.detach(identity.generation);if(!services?.library)await library.close();throw e}
+ }catch(e){client.off?.('notification',resized);await panel?.unmount();await controller.close({preserveFrame:!!services?.startupPlaceholder&&controller.settings.enabled&&controller.settings.wallpaper.enabled});if(services?.appearance)await services.appearance.detach(identity.generation);if(!services?.library)await library.close();throw e}
  return {
   controller,library,presets,panel,host,
   status(){const snapshot=controller.snapshot(),requestedImage=!!(snapshot.settings.wallpaper.enabled&&snapshot.settings.wallpaper.selectedId),observedApplied=!!(snapshot.settings.enabled&&Date.now()-confirmedAt<=10000&&confirmation?.stylesConfirmed&&(!requestedImage||confirmation.imageConfirmed&&controller.active&&!controller.active.invalid&&['ready','paused'].includes(controller.active.status.state)));return {...snapshot,state:!snapshot.settings.enabled?'disabled':snapshot.playback.state==='error'?'error':observedApplied?'applied':'checking',observedApplied,layout:layout.kind,enabled:snapshot.settings.enabled,panelReady:!!panel?.ready,uiTogglePresent:!!panel?.ready,sceneAvailable:library.cards(snapshot.settings).some(c=>c.kind==='scene'&&c.capability==='supported'),sceneSelected:library.get(snapshot.settings.wallpaper.selectedId)?.kind==='scene',scene:snapshot.playback,reason:snapshot.error}},
@@ -79,7 +84,7 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
    else if(host.confirmApplied){confirmation=await host.confirmApplied(controller.settings);confirmedAt=Date.now()}
    return confirmation;
   },
-  async close(){await previewWrite;client.off?.('notification',resized);await viewportJob?.catch(()=>{});await panel?.unmount();try{return await controller.close()}finally{if(services?.appearance)await services.appearance.detach(identity.generation);if(!services?.library)await library.close()}}
+  async close(options){await previewWrite;client.off?.('notification',resized);await viewportJob?.catch(()=>{});await panel?.unmount();try{return await controller.close(options)}finally{if(services?.appearance)await services.appearance.detach(identity.generation);if(!services?.library)await library.close()}}
  };
 }
 module.exports={createWallpaperRuntime};

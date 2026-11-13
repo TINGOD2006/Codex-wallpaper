@@ -1,13 +1,22 @@
 const {randomUUID}=require('node:crypto'),{errorInfo,isObservationCurrent}=require('./status.cjs');
 function createSupervisor({paths,hosts,appearance,runner,mode='manager',clock={now:Date.now,setTimeout,clearTimeout,setInterval,clearInterval}}){
  const instanceId=randomUUID(),listeners=new Set();let inventory=[],selected='codex-desktop',generation=0,active=null,session=null,abort=null,closed=false,pending=null,dirty=false,watcher,interval,retryTimer,retries=0,launchIntent=null,fingerprint='',blockedFingerprint=null;
- let state={schemaVersion:1,mode,instanceId,revision:0,phase:'idle',desired:{enabled:false},observed:{applied:false,connected:false,hostId:selected,appVersion:null,generation,adapterId:null,adapterVersion:null,compatibility:null,heartbeatAt:null,confirmedAt:null,regions:{}},playback:{state:'off'},error:null,hosts:[],pendingLaunch:false};
+ let state={schemaVersion:1,mode,instanceId,revision:0,phase:'idle',desired:{enabled:false},observed:{applied:false,connected:false,hostId:selected,appVersion:null,generation,adapterId:null,adapterVersion:null,compatibility:null,heartbeatAt:null,confirmedAt:null,regions:{}},playback:{state:'off'},fallback:null,error:null,hosts:[],pendingLaunch:false};
  const snapshot=()=>structuredClone(state);
- let rendererFault=null,unsubscribeHealth,compatibilitySession=null,nextCompatibilityProbe=0,endpointWaitSince=null,endpointRetries=0;
+ let rendererFault=null,unsubscribeHealth,compatibilitySession=null,nextCompatibilityProbe=0,endpointWaitSince=null,endpointRetries=0,fallbackSession=null;
  function publish(patch){state={...state,...patch,revision:state.revision+1};for(const listener of listeners)try{listener(snapshot())}catch{}}
  function revoke(){generation++;abort?.abort();publish({phase:'connecting',observed:{...state.observed,applied:false,connected:false,suspended:false,hostUnresponsive:false,generation,confirmedAt:null,heartbeatAt:null}})}
  function clearRetry(){clock.clearTimeout(retryTimer);retryTimer=null}
  function resetRetries(){blockedFingerprint=null;retries=0;endpointWaitSince=null;endpointRetries=0;clearRetry()}
+ function currentHost(target){
+  const host=inventory.find(h=>h.id===selected),roots=host?.processes;
+  return !!target&&host?.appVersion===target.appVersion&&roots?.length===1&&roots[0].managed&&roots[0].pid===target.pid&&roots[0].startTime===target.startTime;
+ }
+ function reportFallback(target,source){
+  fallbackSession=source?target:null;
+  if(source===state.fallback?.source||!source&&!state.fallback)return;
+  publish({fallback:source?{source}:null});
+ }
  function accept(list){
   inventory=list;const host=list.find(h=>h.id===selected);
   const roots=host?.processes?.map(p=>[p.pid,p.startTime,p.managed]).sort((a,b)=>a[0]-b[0]);
@@ -16,9 +25,21 @@ function createSupervisor({paths,hosts,appearance,runner,mode='manager',clock={n
    const changed=!!fingerprint;fingerprint=next;compatibilitySession=null;nextCompatibilityProbe=0;resetRetries();
    if(changed&&(active||session||abort))revoke();
   }
+  if(fallbackSession&&!currentHost(fallbackSession))reportFallback(null,null);
   publish({hosts:list.map(h=>({id:h.id,kind:h.kind,appVersion:h.appVersion,running:!!h.processes?.length})),observed:{...state.observed,hostId:selected,appVersion:host?.appVersion||null}});
  }
- async function drop(){const old=active,oldSession=session;unsubscribeHealth?.();unsubscribeHealth=null;rendererFault=null;active=null;session=null;if(old){const result=await old.close();if(result?.restored===false&&inventory.some(h=>h.processes?.some(p=>p.pid===oldSession?.pid&&p.startTime===oldSession?.startTime)))throw Object.assign(new Error('Restore unconfirmed'),{code:'RESTORE_UNCONFIRMED',stage:'restore'})}}
+ async function drop({preserveFrame=false}={}){
+  const old=active,oldSession=session;
+  unsubscribeHealth?.();unsubscribeHealth=null;rendererFault=null;active=null;session=null;
+  if(!old)return;
+  const keep=preserveFrame&&state.desired.enabled&&state.desired.wallpaperEnabled&&currentHost(oldSession);
+  const result=await old.close({preserveFrame:!!keep});
+  if(keep&&currentHost(oldSession)){
+   const source=runner.fallbackFor?.(oldSession);
+   if(source)reportFallback(oldSession,source);
+  }else if(fallbackSession&&(result?.restored!==false||!currentHost(fallbackSession)))reportFallback(null,null);
+  if(result?.restored===false&&currentHost(oldSession))throw Object.assign(new Error('Restore unconfirmed'),{code:'RESTORE_UNCONFIRMED',stage:'restore'});
+ }
  function fail(error){let code=error.code||'HOST_LAUNCH_FAILED';
   if(code==='HOST_ENDPOINT_PENDING'||code==='HOST_SHELL_PENDING'&&!active){
    endpointWaitSince??=clock.now();
@@ -35,8 +56,9 @@ function createSupervisor({paths,hosts,appearance,runner,mode='manager',clock={n
  }
  async function reconcileInternal(){
   if(closed)return;const view=await appearance.view();state.desired={enabled:view.settings.enabled,wallpaperEnabled:view.settings.wallpaper?.enabled!==false,sceneLive:view.settings.playback?.sceneLive!==false};
+  if(fallbackSession&&(!state.desired.enabled||!state.desired.wallpaperEnabled)&&await runner.clearFallback?.({isCurrent:currentHost}))reportFallback(null,null);
   const checked=fingerprint;
-  if(session&&session.generation!==generation)await drop();
+  if(session&&session.generation!==generation)await drop({preserveFrame:true});
   if(closed||checked!==fingerprint)return;
   if(rendererFault&&active?.hostResponsive?.()!==false)throw rendererFault;
   if(blockedFingerprint===fingerprint){
@@ -65,8 +87,11 @@ function createSupervisor({paths,hosts,appearance,runner,mode='manager',clock={n
     throw Object.assign(new Error('Host identity changed before attachment'),{code:'HOST_IDENTITY_CHANGED'});
    }
    session=candidateSession;publish({phase:'checking'});
-   const candidate=await runner.attach(candidateSession,appearance,{instanceId,signal,sessionCurrent:()=>inventory.some(h=>h.processes?.some(p=>p.pid===candidateSession.pid&&p.startTime===candidateSession.startTime))});
-   if(closed||epoch!==generation){await candidate.close();return}
+   const candidate=await runner.attach(candidateSession,appearance,{instanceId,signal,
+    sessionCurrent:()=>currentHost(candidateSession),
+    onFallback:source=>{if(!closed&&epoch===generation&&currentHost(candidateSession))reportFallback(candidateSession,source)}
+   });
+   if(closed||epoch!==generation){await candidate.close({preserveFrame:!closed&&currentHost(candidateSession)});return}
    active=candidate;endpointWaitSince=null;endpointRetries=0;rendererFault=null;unsubscribeHealth=candidate.subscribeHealth?.(event=>{if(closed||event.expected||event.healthy!==false||active!==candidate||generation!==epoch||rendererFault)return;rendererFault=Object.assign(new Error('RENDERER_FAILED'),{code:'RENDERER_FAILED',stage:'render',retryManaged:event.retryManaged!==false,retryBlocked:event.retryBlocked===true});publish({phase:'checking',observed:{...state.observed,applied:false,rendererHealthy:false,confirmedAt:null}});queue()});launchIntent=null;clearRetry();publish({pendingLaunch:false});
   }
   const observed=await active.observe();if(closed||session?.generation!==generation)return;if(rendererFault&&!observed.hostUnresponsive)throw rendererFault;
@@ -77,7 +102,10 @@ function createSupervisor({paths,hosts,appearance,runner,mode='manager',clock={n
   if(applied||!state.desired.enabled&&proof.connected&&proof.layoutPassed)retries=0;
   const adapter=active.adapter||{},partial=Object.values(adapter.regions||{}).some(r=>!r.supported),playback=observed.playback||{state:'off'};
   if(observed.requestedImage&&observed.rendererHealthy!==true)throw Object.assign(new Error('RENDERER_FAILED'),{code:'RENDERER_FAILED',stage:'render',...observed.failure});
-  publish({phase:!state.desired.enabled?'disabled':!applied?'checking':playback.state==='paused'?'paused':partial?'partial':'active',observed:{applied,connected:proof.connected,suspended:false,hostUnresponsive:false,rendererHealthy:proof.rendererHealthy,hostId:selected,appVersion:session.appVersion,generation,adapterId:adapter.adapterId||null,adapterVersion:adapter.adapterVersion||null,compatibility:adapter.compatibility||null,heartbeatAt:proof.heartbeatAt,confirmedAt:applied?clock.now():null,regions:adapter.regions||{}},playback,error:view.dirty?errorInfo('SETTINGS_INVALID','settings'):view.error?errorInfo('RENDERER_FAILED','render'):partial?errorInfo('ADAPTER_PARTIAL','probe'):null});
+  const clearFallback=applied&&!playback.preview||!state.desired.enabled||!state.desired.wallpaperEnabled;
+  if(clearFallback)fallbackSession=null;
+  const fallback=clearFallback?null:state.fallback;
+  publish({phase:!state.desired.enabled?'disabled':!applied?'checking':playback.state==='paused'?'paused':partial?'partial':'active',fallback,observed:{applied,connected:proof.connected,suspended:false,hostUnresponsive:false,rendererHealthy:proof.rendererHealthy,hostId:selected,appVersion:session.appVersion,generation,adapterId:adapter.adapterId||null,adapterVersion:adapter.adapterVersion||null,compatibility:adapter.compatibility||null,heartbeatAt:proof.heartbeatAt,confirmedAt:applied?clock.now():null,regions:adapter.regions||{}},playback,error:view.dirty?errorInfo('SETTINGS_INVALID','settings'):view.error?errorInfo('RENDERER_FAILED','render'):partial?errorInfo('ADAPTER_PARTIAL','probe'):null});
  }
  function queue(){
   dirty=true;if(pending)return pending;
@@ -88,7 +116,7 @@ function createSupervisor({paths,hosts,appearance,runner,mode='manager',clock={n
      if(closed||checked!==fingerprint||error.name==='AbortError'||abort?.signal.aborted)continue;
      const failedGeneration=generation,reason=rendererFault||error;
      if(reason.code==='ADAPTER_LAYOUT_MISMATCH'){compatibilitySession=session;nextCompatibilityProbe=clock.now()+10000}
-     if(reason.code!=='HOST_SHELL_PENDING'||!active)await drop().catch(()=>{});
+     if(reason.code!=='HOST_SHELL_PENDING'||!active)await drop({preserveFrame:!closed}).catch(()=>{});
      if(!closed&&checked===fingerprint&&failedGeneration===generation)fail(reason);
     }
    }while(dirty&&!closed)}finally{pending=null}
@@ -125,7 +153,15 @@ function createSupervisor({paths,hosts,appearance,runner,mode='manager',clock={n
   async waitForExitAndLaunch(hostId=selected){if(!inventory.some(h=>h.id===hostId))throw Object.assign(new Error('Host not found'),{code:'HOST_NOT_FOUND'});blockedFingerprint=null;selected=hostId;launchIntent='wait';accept(inventory);publish({pendingLaunch:true});await queue();return snapshot()},
   async enableWallpaper(){runner.resetFailures?.();blockedFingerprint=null;compatibilitySession=null;retries=0;clock.clearTimeout(retryTimer);retryTimer=null;await appearance.controller.patch({enabled:true,wallpaper:{enabled:true}});await queue();return snapshot()},
   async setEnabled(enabled){if(typeof enabled!=='boolean')throw new Error('Expected enabled boolean');if(enabled){runner.resetFailures?.();blockedFingerprint=null;retries=0}await appearance.controller.patch({enabled});await queue();return snapshot()},
-  async close(){if(closed)return;closed=true;abort?.abort();clock.clearInterval(interval);clock.clearTimeout(retryTimer);watcher?.close();hosts.close();await pending;await drop();publish({phase:'offline',observed:{...state.observed,applied:false,connected:false}});listeners.clear()}
+  async close(){
+   if(closed)return;
+   closed=true;abort?.abort();clock.clearInterval(interval);clearRetry();watcher?.close();hosts.close();
+   await pending;
+   try{await drop()}finally{
+    await runner.clearFallback?.({isCurrent:currentHost});
+    publish({phase:'offline',fallback:null,observed:{...state.observed,applied:false,connected:false}});listeners.clear();
+   }
+  }
  };
 }
 module.exports={createSupervisor};

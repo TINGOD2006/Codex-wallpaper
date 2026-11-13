@@ -17,6 +17,42 @@ const fs=require('node:fs/promises'),{createRendererService}=require('../../src/
   // Exercise the production maintenance task against a real, owned DOM.
   let calls=0;const measured=new WallpaperHost({evaluate:expression=>{calls++;return client.evaluate(expression)}},'26.1023.6621.0');
   await host.confirmImage((await loadImage(image.mediaPath)).dataUri);
+  // Keep the cache through an incomplete shell and failed or pending decodes.
+  const cache=(await loadImage(image.mediaPath)).dataUri;
+  const replacement='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=';
+  const displayed=()=>client.evaluate("document.getElementById('codex-wallpaper-image')?.getAttribute('src')");
+  await client.evaluate("document.querySelector('button[aria-label]').setAttribute('aria-label','loading')");
+  const documentToken=(await host.inspect()).documentToken;
+  assert.equal(await host.showFallback(s,cache,'stale document'),false);
+  assert.equal(await host.showFallback(s,cache,documentToken),true);
+  assert.equal(await host.showFallback(s,replacement,documentToken,{existingOnly:true}),false);
+  assert.equal(await host.showFallback(s,cache,documentToken,{existingOnly:true}),true);
+  assert.equal(await displayed(),cache);
+  assert.equal(await host.showFallback(s,'data:image/png;base64,YQ==',documentToken),false);
+  assert.equal(await displayed(),cache);
+  await assert.rejects(host.apply(s),{code:'HOST_SHELL_PENDING'});
+  assert.equal(await displayed(),cache);
+  await client.evaluate("document.querySelector('button[aria-label]').setAttribute('aria-label','目前模式：Codex')");
+  await measured.apply(s);
+  assert.equal(await measured.paint('data:image/png;base64,YQ==',{decoded:true}),false);
+  assert.equal(await displayed(),cache);
+  await client.evaluate(`(()=>{
+    const decode=Image.prototype.decode;
+    Image.prototype.decode=function(){return new Promise((resolve,reject)=>{window.releaseWallpaperFrame=()=>decode.call(this).then(resolve,reject)})};
+    window.restoreWallpaperDecode=()=>{Image.prototype.decode=decode};
+  })()`);
+  const promoting=measured.paint(replacement,{decoded:true});
+  for(let i=0;i<40&&!await client.evaluate("typeof window.releaseWallpaperFrame==='function'");i++)await delay(25);
+  assert.equal(await displayed(),cache);
+  await client.evaluate('window.releaseWallpaperFrame();window.restoreWallpaperDecode()');
+  assert.equal(await promoting,true);
+  assert.equal(await displayed(),replacement);
+  await host.restoreAll({fallbackToken:documentToken});
+  assert.equal(await displayed(),replacement);
+  assert.equal(await host.showFallback(s,cache,documentToken),true);
+  await host.restoreAll({fallbackToken:documentToken});
+  assert.equal(await displayed(),undefined);
+  await host.apply(s);await host.paint(cache,{decoded:true});
   const runSample=async work=>{calls=0;const start=performance.now();await work();return {calls,ms:performance.now()-start}};
   const oldMaintenance=async()=>{await measured.inspect();await measured.viewport();await client.evaluate("!!document.getElementById('codex-wallpaper-layer')");calls++;await measured.apply(s);await measured.imageMetrics();await measured.confirmApplied(s)};
   const oldSamples=[],newSamples=[];

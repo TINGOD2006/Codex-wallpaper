@@ -2,7 +2,8 @@ const fs=require('node:fs/promises'),path=require('node:path');
 const {connectCompanion}=require('./control-client.cjs'),{resolvePaths}=require('./paths.cjs'),{atomicJson}=require('../config.cjs');
 function sessionState(launchId,state,host){
  const off=state.desired?.enabled===false||state.desired?.wallpaperEnabled===false;
- return {LaunchId:launchId,HostPid:Number.isInteger(host?.pid)?host.pid:0,HostStartTime:String(host?.startTime||''),HostPath:host?.appPath||'',Ready:!!(host&&!state.observed?.hostUnresponsive&&(state.observed?.applied||off&&state.observed?.connected)),Failed:!!(state.error&&!['HOST_ENDPOINT_PENDING','HOST_SHELL_PENDING','HOST_LAUNCH_FAILED','HOST_IDENTITY_CHANGED','HOST_UNRESPONSIVE'].includes(state.error.code)&&!state.observed?.applied)};
+ const ready=!!(host&&!state.observed?.hostUnresponsive&&(state.observed?.applied||!off&&state.fallback||off&&state.observed?.connected));
+ return {LaunchId:launchId,HostPid:Number.isInteger(host?.pid)?host.pid:0,HostStartTime:String(host?.startTime||''),HostPath:host?.appPath||'',Ready:ready,Failed:!!(state.error&&!ready&&!['HOST_ENDPOINT_PENDING','HOST_SHELL_PENDING','HOST_LAUNCH_FAILED','HOST_IDENTITY_CHANGED','HOST_UNRESPONSIVE'].includes(state.error.code)&&!state.observed?.applied)};
 }
 async function feedBootStatus({paths,statePath,launchId,playerPid,connect=connectCompanion,now=Date.now,sleep=ms=>new Promise(r=>setTimeout(r,ms)),alive=pid=>{try{process.kill(pid,0);return true}catch{return false}},write=atomicJson,read=fs.readFile,timeoutMs=45000}){
  const directory=path.join(paths.runtime,'boot-animation'),expected=path.join(directory,launchId+'.json');

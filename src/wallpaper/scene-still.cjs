@@ -7,7 +7,11 @@ async function preloadSceneStill({entry,dataRoot,signal}){
  const candidates=[],cache=path.join(dataRoot,'last-wallpaper-frame.json');
  const add=(uri,source)=>{if(validFrame(uri)&&!candidates.some(c=>c.uri===uri))candidates.push({uri,source})};
  try{signal?.throwIfAborted();if((await fs.stat(cache)).size<=8*1024*1024){const saved=JSON.parse(await fs.readFile(cache,'utf8'));if(saved.selectedId===entry.id)add(saved.uri,'cache')}}catch(error){signal?.throwIfAborted()}
- if(entry.previewPath)try{signal?.throwIfAborted();const base=await fs.realpath(entry.directory),file=await fs.realpath(entry.previewPath);if(file.startsWith(base+path.sep)&&(await fs.stat(file)).size<=8*1024*1024)add((await loadImage(file)).dataUri,'preview')}catch(error){signal?.throwIfAborted()}
+ if(entry.previewPath||entry.kind==='image'&&entry.mediaPath)try{
+  signal?.throwIfAborted();
+  const base=await fs.realpath(entry.directory),file=await fs.realpath(entry.previewPath||entry.mediaPath);
+  if(file.startsWith(base+path.sep)&&(await fs.stat(file)).size<=8*1024*1024)add((await loadImage(file)).dataUri,'preview');
+ }catch{signal?.throwIfAborted()}
  signal?.throwIfAborted();return candidates;
 }
 async function resolveSceneStill({entry,dataRoot,preferredFrame,preloaded,validate=async()=>{},signal}){

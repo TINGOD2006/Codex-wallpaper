@@ -3,6 +3,13 @@ test('preview status distinguishes static loading from live playback and offers 
  const {view}=require('../../src/companion/sidebar-recovery.js'),state={observed:{applied:true},playback:{preview:true,state:'loading'}};
  assert.match(view(state).message,/靜態背景.*預載/);assert.equal(view(state).warning,false);const failed=view({...state,error:{code:'RENDERER_FAILED'}});assert.match(failed.message,/保留靜態/);assert.equal(failed.visible,true);assert.equal(failed.action,'reconnect');
 });
+test('a verified static fallback can be shown while host attachment is still pending or failed',()=>{
+ const state={phase:'checking',fallback:{source:'cache'},observed:{applied:false}};
+ assert.match(view(state).message,/已顯示快取.*正在接入/);
+ const failed=view({...state,error:{code:'HOST_ENDPOINT_TIMEOUT',message:'接入等待逾時。'}});
+ assert.match(failed.message,/接入等待逾時.*已保留靜態背景/);
+ assert.equal(failed.action,'reconnect');
+});
 const {view,create}=require('../../src/companion/sidebar-recovery.js');
 const missing={observed:{applied:false},error:{code:'HOST_NEEDS_MANAGED_LAUNCH'}};
 test('a disabled image switch is visible even when other appearance styles are applied',async()=>{

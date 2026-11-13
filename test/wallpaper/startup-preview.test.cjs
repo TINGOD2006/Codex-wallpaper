@@ -7,7 +7,7 @@ test('startup paints only a matching cached wallpaper before preparing the live 
   class Host{async inspect(){return {rootViewportCount:0,frameCount:1,activeMainSurfaceCount:1,composerBodyCount:1,editorCount:1,mode:'codex'}}async validateImage(){}async apply(){}async paint(uri){events.push(uri)}async clearBackground(){}async restoreAll(){}async confirmImage(){return true}}
   const entry={id:'selected',kind:'image',capability:'supported'},library={scan:async()=>{throw Error('Companion already scanned the library')},get:()=>entry,cards:()=>[]},rendererService={prepare:async()=>{events.push('prepare');return {status:{state:'ready'},frame:async()=>'live',setPlayback:async()=>{},close:async()=>{},pause:async()=>{},resume:async()=>{}}}};
   const runtime=await createWallpaperRuntime({client:{evaluate:async()=>true},identity:{sessionId:'preview',appVersion:'26.1027.6604.0'},projectRoot:path.resolve('.'),dataRoot,mountPanel:false,Host,services:{store,library,presets:{},rendererService}});
-  try{assert.deepEqual(events,match?[CACHED,'prepare','live']:['prepare','live'])}finally{await runtime.close()}
+  try{await runtime.controller.initialRequest;assert.deepEqual(events,match?[CACHED,'prepare','live']:['prepare','live'])}finally{await runtime.close()}
  }
 });
 
