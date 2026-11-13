@@ -6,8 +6,8 @@ try{
  if($SettleLaunch -and ($Action -ne 'Start' -or -not $Integrated)){throw 'SettleLaunch requires integrated Start'}
  $node=(Get-Command node -ErrorAction Stop).Source
  $command=Join-Path $projectRoot 'src/companion/command.cjs'
- $operation=switch($Action){'Exit'{'exit'};'Show'{'show-window'};'Start'{'status'}}
- $result=& $node $command $operation 2>$null
+ [string[]]$operation=switch($Action){'Exit'{'exit'};'Show'{'show-window'};'Start'{if($SettleLaunch){'launch';'--settle'}else{'status'}}}
+ $result=& $node $command @operation 2>$null
  if($LASTEXITCODE -eq 0){
   $existing=$result|ConvertFrom-Json
   if(-not $Integrated -or $existing.state.mode -eq 'integrated' -or $Action -eq 'Exit'){$result;return}

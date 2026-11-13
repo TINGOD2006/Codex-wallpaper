@@ -2,6 +2,10 @@ $ErrorActionPreference='Stop'
 $project=Split-Path $PSScriptRoot;$root=Join-Path $project ('.state/entry-concurrency-'+[guid]::NewGuid().ToString('N'));$app=Join-Path $root 'app';$scripts=Join-Path $app 'scripts';$source=Join-Path $app 'src/companion';$assets=Join-Path $root 'data/entry-assets'
 New-Item -ItemType Directory -Path $scripts,$source,$assets -Force|Out-Null
 Copy-Item -LiteralPath (Join-Path $project 'scripts/launch-wallpaper.ps1') -Destination (Join-Path $scripts 'launch-wallpaper.ps1')
+Copy-Item -LiteralPath (Join-Path $project 'scripts/start-companion.ps1') -Destination (Join-Path $scripts 'start-companion.ps1')
+@'
+function Get-CompanionInstallRoot {Split-Path (Split-Path $PSScriptRoot)}
+'@|Set-Content -LiteralPath (Join-Path $scripts 'companion-paths.ps1') -Encoding utf8
 @'
 param([scriptblock]$OnColdStart,[scriptblock]$OnExistingWindow,[switch]$ExistingOnly,[switch]$UseHostHint)
 if($ExistingOnly){Add-Content -LiteralPath $env:CW_CONCURRENT_ACTIVATIONS -Value 'activate';return}
@@ -14,7 +18,7 @@ function Set-WallpaperBootFailure {param($Context)}
 '@|Set-Content -LiteralPath (Join-Path $scripts 'boot-animation.ps1') -Encoding utf8
 @'
 const fs=require('node:fs');fs.appendFileSync(process.env.CW_CONCURRENT_CLIENTS,'one client\n');fs.writeFileSync(process.env.CW_CONCURRENT_READY,'ready');
-const timer=setInterval(()=>{if(fs.existsSync(process.env.CW_CONCURRENT_RELEASE)){clearInterval(timer);console.log(JSON.stringify({ok:true,state:{phase:'active',desired:{enabled:true,wallpaperEnabled:true},observed:{applied:true,connected:true,appVersion:'fixture'}}}))}},100);setTimeout(()=>{clearInterval(timer);process.exit(3)},45000).unref();
+const timer=setInterval(()=>{if(fs.existsSync(process.env.CW_CONCURRENT_RELEASE)){clearInterval(timer);console.log(JSON.stringify({ok:true,state:{mode:'integrated',phase:'active',desired:{enabled:true,wallpaperEnabled:true},observed:{applied:true,connected:true,appVersion:'fixture'}}}))}},100);setTimeout(()=>{clearInterval(timer);process.exit(3)},45000).unref();
 '@|Set-Content -LiteralPath (Join-Path $source 'command.cjs') -Encoding utf8
 foreach($name in @('install-wallpaper-entry.ps1','install-codex-taskbar-entry.ps1','install-codex-user-shortcuts.ps1')){[IO.File]::WriteAllText((Join-Path $scripts $name),'# Owned fixture')}
 @{appVersion='fixture'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $assets 'entry-refreshed') -Encoding utf8

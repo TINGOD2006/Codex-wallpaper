@@ -63,6 +63,37 @@ test('an older attachment completing after an update cannot publish the old host
  host={...host,appPath:'C:/Official/v2/ChatGPT.exe',appVersion:'2',processes:[{pid:52,startTime:'20',managed:true}]};event({type:'hosts',hosts:[host]});release();await starting;await supervisor.reconcile();
  assert.equal(oldClosed,1);assert.equal(supervisor.snapshot().observed.appVersion,'2');assert.equal(supervisor.snapshot().phase,'active');await supervisor.close();
 });
+test('a replacement at the same version cancels pending discovery before attaching to the retired PID',async()=>{
+ let event,release,entered,oldSignal;const attached=[];
+ const old={id:'codex-desktop',kind:'codex-desktop',appPath:'C:/Official/ChatGPT.exe',appVersion:'1',processes:[{pid:52,startTime:'10',managed:true}]};
+ const next={...old,processes:[{pid:53,startTime:'20',managed:true}]};
+ const waiting=new Promise(r=>{entered=r}),gate=new Promise(r=>{release=r});let calls=0;
+ const hosts={scan:async()=>[old],watch:fn=>{event=fn;return {close(){}}},async launch(id,{generation,signal}){
+  const snapshot=++calls===1?old:next;
+  if(snapshot===old){oldSignal=signal;entered();await gate}
+  return {...snapshot.processes[0],appVersion:snapshot.appVersion,generation,sessionId:String(calls)};
+ },close(){}};
+ const runner={async attach(session){attached.push(session.pid);return {observe:async()=>({connected:true,layoutPassed:true,stylesConfirmed:true,rendererHealthy:true}),close:async()=>({restored:true})}}};
+ const supervisor=createSupervisor({hosts,runner,appearance:{view:async()=>({settings:{enabled:true}})}});
+ const started=supervisor.start();
+ try{
+  await waiting;event({type:'hosts',hosts:[next]});assert.equal(oldSignal.aborted,true);release();await started;
+  assert.deepEqual(attached,[53]);assert.equal(supervisor.snapshot().observed.applied,true);assert.equal(supervisor.snapshot().error,null);
+ }finally{release();await started;await supervisor.close()}
+});
+test('passive attach wakes discovery after an initial scan failure and skips activation',async()=>{
+ const host={id:'codex-desktop',kind:'codex-desktop',processes:[{pid:15,startTime:'30',managed:true}]};
+ let event,opens=0,attaches=0,activations=0;
+ const hosts={scan:async()=>{throw Error('Temporary discovery failure')},watch:fn=>{event=fn;return {close(){}}},async launch(id,{generation}){opens++;return {...host.processes[0],generation,sessionId:'fixture'}},async activate(){activations++},close(){}};
+ const runner={async attach(){attaches++;return {observe:async()=>({connected:true,layoutPassed:true,stylesConfirmed:true,rendererHealthy:true}),close:async()=>({restored:true})}}};
+ const supervisor=createSupervisor({hosts,runner,appearance:{view:async()=>({settings:{enabled:true}})}});
+ try{
+  await supervisor.start();assert.equal(supervisor.snapshot().error.code,'HOST_NOT_FOUND');
+  supervisor.attachExisting();assert.equal(opens,0);
+  event({type:'hosts',hosts:[host]});supervisor.attachExisting();await supervisor.reconcile();supervisor.attachExisting();
+  assert.equal(opens,1);assert.equal(attaches,1);assert.equal(activations,0);assert.equal(supervisor.snapshot().observed.applied,true);
+ }finally{await supervisor.close()}
+});
 test('an unavailable transport remains visible across watcher pulses until explicitly retried',async()=>{
  let event,launches=0;
  const host={id:'codex-desktop',kind:'codex-desktop',appPath:'C:/Official/current/ChatGPT.exe',appVersion:'99.2',processes:[{pid:51,startTime:'10',managed:true}]};

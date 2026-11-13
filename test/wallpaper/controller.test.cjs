@@ -43,3 +43,17 @@ test('a renderer released after a minute hidden is healthy suspension and resume
   f.c.windowVisible=()=>true;await f.c.tick(now+63000);assert.equal(prepared,2);assert.ok(f.c.active);
  }finally{await f.c.close()}
 });
+test('native hang discards a queued live frame and recovers the same renderer even with hidden playback allowed',async()=>{
+ let responsive=true,release,pauses=0,resumes=0;const paints=[];
+ const lease=renderer('fixture');lease.frame=()=>new Promise(resolve=>{release=resolve});
+ lease.pause=async()=>{pauses++;lease.status.state='paused'};lease.resume=async()=>{resumes++;lease.status.state='ready'};
+ const controller=new WallpaperController({library:{get:()=>({kind:'scene'})},host:{paint:async frame=>paints.push(frame),restoreAll:async()=>{}},hostResponsive:()=>responsive});
+ controller.settings.wallpaper.selectedId='scene';controller.settings.playback.pauseWhenHidden=false;controller.active=lease;
+ try{
+  const queued=controller.tick();assert.equal(typeof release,'function');responsive=false;release('stale');await queued;
+  await controller.tick();assert.deepEqual(paints,[]);assert.equal(pauses,1);assert.equal(controller.playback.suspended,true);assert.equal(controller.loopDelay(),250);
+  await assert.rejects(controller.patch({reading:{scrim:.5}}),{code:'HOST_UNRESPONSIVE'});
+  responsive=true;lease.frame=async()=>'resumed';await controller.tick();
+  assert.deepEqual(paints,['resumed']);assert.equal(resumes,1);assert.equal(controller.active,lease);assert.equal(controller.playback.suspended,false);
+ }finally{await controller.close()}
+});

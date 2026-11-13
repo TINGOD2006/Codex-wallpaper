@@ -31,7 +31,8 @@ try{
   $raw=@(Get-Content -LiteralPath $env:CW_START_FIXTURE_CALLS)
   if($raw.Count -ne 2){throw 'Startup created duplicate command clients'}
   $expected=if($settle){'["wait-ready","--settle-launch"]'}else{'["wait-ready"]'}
-  if($raw[0] -ne '["status"]' -or $raw[1] -ne $expected){throw 'Startup arguments were split or settlement was lost'}
+  $initial=if($settle){'["launch","--settle"]'}else{'["status"]'}
+  if($raw[0] -ne $initial -or $raw[1] -ne $expected){throw 'Startup arguments were split or settlement was lost'}
  }
  'PASS: ordinary and integrated-settle startup pass exact CLI arguments and create no extra verification client'
 }finally{$env:CW_START_FIXTURE_MARKER=$oldMarker;$env:CW_START_FIXTURE_CALLS=$oldCalls}

@@ -6,6 +6,7 @@ test('only accepts the managed loopback port and main application page',()=>{
   assert.equal(validateTarget(target,{port:4567}),target);
   for(const patch of [{url:'https://chatgpt.com/'},{type:'iframe'},{webSocketDebuggerUrl:'ws://example.com:4567/devtools/page/abc'},{webSocketDebuggerUrl:'ws://127.0.0.1:4568/devtools/page/abc'},{webSocketDebuggerUrl:'ws://user@127.0.0.1:4567/devtools/page/abc'},{webSocketDebuggerUrl:'ws://127.0.0.1:4567/devtools/page/other'}])assert.throws(()=>validateTarget({...target,...patch},{port:4567}));
   assert.throws(()=>selectTarget([target,target],{port:4567}),/one|ambiguous/i);
+  assert.throws(()=>selectTarget([{type:'page',url:'about:blank'}],{port:4567}),{code:'HOST_ENDPOINT_PENDING'});
 });
 class Socket extends EventTarget {
   readyState=1; messages=[];
@@ -15,8 +16,9 @@ class Socket extends EventTarget {
 }
 test('a timed-out request is rejected and removed',async()=>{
   const socket=new Socket(),client=new Protocol(socket,{timeoutMs:15});
-  await assert.rejects(client.send('CSS.enable'),/timed out/);
-  assert.equal(client.pendingCount,0);client.close();
+  const timeouts=[];client.on('requestTimeout',method=>timeouts.push(method));
+  await assert.rejects(client.send('CSS.enable'),{code:'PROTOCOL_TIMEOUT',message:'CSS.enable timed out'});
+  assert.deepEqual(timeouts,['CSS.enable']);assert.equal(client.pendingCount,0);assert.equal(client.connected,true);client.close();
 });
 test('closing the connection rejects pending operations immediately',async()=>{
   const socket=new Socket(),client=new Protocol(socket,{timeoutMs:1000});

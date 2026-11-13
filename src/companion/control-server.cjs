@@ -29,6 +29,7 @@ async function startControlServer({paths,supervisor,appearance,recoverEntry=asyn
    case 'enable-wallpaper':if(!exact(p,[]))throw new Error('Invalid enable request');await supervisor.enableWallpaper();break;
    case 'set-enabled':if(!exact(p,['enabled'])||typeof p.enabled!=='boolean')throw new Error('Invalid enabled');await supervisor.setEnabled(p.enabled);break;
    case 'reconnect':if(!exact(p,[]))throw new Error('Invalid payload');await supervisor.reconnect();await recoverEntry();break;
+   case 'attach-existing':if(!exact(p,[]))throw new Error('Invalid payload');supervisor.attachExisting();break;
    case 'launch':case 'wait-for-exit-and-launch':if(!exact(p,['hostId'])||!['codex-desktop','chatgpt-desktop'].includes(p.hostId))throw new Error('Invalid host');await supervisor[action==='launch'?'launch':'waitForExitAndLaunch'](p.hostId);break;
    case 'appearance.command':if(!exact(p,['command']))throw new Error('Invalid payload');return appearance.dispatch(p.command);
    case 'show-window':if(!exact(p,[]))throw new Error('Invalid payload');await showWindow(issueBootstrap());return {shown:true};

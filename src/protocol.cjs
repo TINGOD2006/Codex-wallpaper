@@ -7,8 +7,9 @@ function validateTarget(target,identity) {
 }
 function selectTarget(targets,identity) {
   if(!Array.isArray(targets))throw new Error('Invalid target list');
-  const main=targets.filter(t=>t.type==='page'&&t.url==='app://-/index.html');
-  if(main.length!==1)throw new Error('Expected one main desktop page; target is absent or ambiguous');
+  const main=targets.filter(t=>t?.type==='page'&&t.url==='app://-/index.html');
+  if(main.length===0)throw Object.assign(new Error('Main desktop page is not ready'),{code:'HOST_ENDPOINT_PENDING'});
+  if(main.length!==1)throw new Error('Expected one main desktop page; target is ambiguous');
   return validateTarget(main[0],identity);
 }
 class Protocol extends EventEmitter {
@@ -30,14 +31,16 @@ class Protocol extends EventEmitter {
     };
     socket.addEventListener('close',fail);socket.addEventListener('error',fail);
   }
-  static async connect(target,identity,{timeoutMs=10000}={}) {
-    validateTarget(target,identity);
+  static async connect(target,identity,{timeoutMs=10000,signal}={}) {
+    validateTarget(target,identity);signal?.throwIfAborted();
     const socket=new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((resolve,reject)=>{
-      const finish=(error)=>{clearTimeout(timer);socket.removeEventListener('open',opened);socket.removeEventListener('error',failed);socket.removeEventListener('close',failed);error?reject(error):resolve();};
+      const finish=(error)=>{clearTimeout(timer);signal?.removeEventListener('abort',aborted);socket.removeEventListener('open',opened);socket.removeEventListener('error',failed);socket.removeEventListener('close',failed);error?reject(error):resolve();};
       const opened=()=>finish();const failed=()=>finish(new Error('Cannot open debugging connection'));
-      const timer=setTimeout(()=>{finish(new Error('Debugging connection timed out'));socket.close();},timeoutMs);
+      const aborted=()=>{finish(signal.reason);socket.close()};
+      const timer=setTimeout(()=>{finish(Object.assign(new Error('Debugging connection timed out'),{code:'PROTOCOL_TIMEOUT'}));socket.close();},timeoutMs);
       socket.addEventListener('open',opened,{once:true});socket.addEventListener('error',failed,{once:true});socket.addEventListener('close',failed,{once:true});
+      signal?.addEventListener('abort',aborted,{once:true});
     });
     return new Protocol(socket,{timeoutMs});
   }
@@ -47,7 +50,11 @@ class Protocol extends EventEmitter {
     if(!this.connected)throw new Error('Debugging connection closed');
     const id=++this.#sequence;
     return new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>{this.#pending.delete(id);reject(new Error(`${method} timed out`));},this.timeoutMs);
+      const timer=setTimeout(()=>{
+        this.#pending.delete(id);
+        reject(Object.assign(new Error(`${method} timed out`),{code:'PROTOCOL_TIMEOUT'}));
+        this.emit('requestTimeout',method);
+      },this.timeoutMs);
       this.#pending.set(id,{resolve,reject,timer});
       try{this.socket.send(JSON.stringify({id,method,params}));}catch(error){clearTimeout(timer);this.#pending.delete(id);reject(error);}
     });

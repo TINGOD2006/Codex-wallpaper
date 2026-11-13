@@ -20,7 +20,6 @@ function Write-WallpaperLaunchResult([string]$Result,[string]$Code){
 }
 try {
  $projectRoot=Split-Path $PSScriptRoot
- $command=Join-Path $projectRoot 'src/companion/command.cjs'
  $key=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($projectRoot.ToLowerInvariant())))
  $launchMutex=[Threading.Mutex]::new($false,'Local\CodexWallpaperLaunch-'+$key)
  try{$launchLocked=$launchMutex.WaitOne(0)}catch [Threading.AbandonedMutexException]{$launchLocked=$true}
@@ -35,21 +34,15 @@ try {
  & (Join-Path $PSScriptRoot 'ensure-codex-visible.ps1') -UseHostHint -OnColdStart {param($reason);$entryState.cold=$true;$bootAnimation.reason=$reason;try{$outcome=$null;$bootAnimation.value=Start-WallpaperBootAnimation -ProjectRoot $projectRoot -Reason ([ref]$outcome);$bootAnimation.outcome=$outcome}catch{$bootAnimation.reason='start-failed';$bootAnimation.error=$_.Exception.Message;Write-Warning '啟動動畫暫不可用，繼續啟動 Codex。'}} -OnExistingWindow {param($HintUsed)if(-not $entryState.cold){$bootAnimation.reason='already-running'};$entryState.hostHintUsed=[bool]$HintUsed}
  $entryState.nativeInvoked=$true
  $entryState.nativeRequestMs=$launchTimer.ElapsedMilliseconds
- $node=(Get-Command node -ErrorAction Stop).Source
- # Establish the wallpaper connection before cosmetic shortcut maintenance.
- $reply=& $node $command launch --settle 2>$null
- if($LASTEXITCODE -ne 0){
-  # The waiter returns the launch state using its already verified client.
-  # Do not immediately create another Node + PowerShell verifier after startup.
-  $reply=& (Join-Path $PSScriptRoot 'start-companion.ps1') -Action Start -Integrated -Quiet -SettleLaunch
- }
+ # The same startup path handles both an existing service and a cold service.
+ $reply=& (Join-Path $PSScriptRoot 'start-companion.ps1') -Action Start -Integrated -Quiet -SettleLaunch
  $state=($reply|ConvertFrom-Json).state
  Show-LaunchedCodex
  # Cosmetic shortcut refresh must not rescan the package on every hot launch.
  $refreshFile=Join-Path (Split-Path $projectRoot) 'data/entry-assets/entry-refreshed'
  $refresh=Get-Item -LiteralPath $refreshFile -ErrorAction SilentlyContinue
  $refreshData=$null;try{if($refresh){$refreshData=Get-Content -LiteralPath $refreshFile -Raw|ConvertFrom-Json}}catch{}
- if(-not $refresh -or $refresh.LastWriteTimeUtc -lt [DateTime]::UtcNow.AddHours(-24) -or $refresh.LastWriteTimeUtc -lt (Get-Item -LiteralPath $PSCommandPath).LastWriteTimeUtc -or $refreshData.appVersion -ne $state.observed.appVersion){
+ if($state.observed.appVersion -and (-not $refresh -or $refresh.LastWriteTimeUtc -lt [DateTime]::UtcNow.AddHours(-24) -or $refresh.LastWriteTimeUtc -lt (Get-Item -LiteralPath $PSCommandPath).LastWriteTimeUtc -or $refreshData.appVersion -ne $state.observed.appVersion)){
   # A deliberately preserved legacy link must not prevent the current entry
   # from being maintained, nor make every click repeat a failed refresh.
   foreach($installer in @('install-wallpaper-entry.ps1','install-codex-taskbar-entry.ps1','install-codex-user-shortcuts.ps1')){
@@ -59,7 +52,7 @@ try {
  }
  # Wallpaper readiness must not gate the original application or open a modal
  # error dialog. The sidebar and diagnostic log retain real connection errors.
- $launchResult=if($state.error -and $state.error.code -notin @('HOST_ENDPOINT_PENDING','HOST_SHELL_PENDING','HOST_IDENTITY_CHANGED','HOST_LAUNCH_FAILED')){'wallpaper-unavailable'}elseif($state.observed.applied -or -not $state.desired.enabled -or -not $state.desired.wallpaperEnabled){'completed'}else{'pending'}
+ $launchResult=if($state.error -and $state.error.code -notin @('HOST_ENDPOINT_PENDING','HOST_SHELL_PENDING','HOST_IDENTITY_CHANGED','HOST_LAUNCH_FAILED','HOST_UNRESPONSIVE')){'wallpaper-unavailable'}elseif($state.observed.applied -or $state.phase -eq 'disabled' -or $state.desired.wallpaperEnabled -eq $false){'completed'}else{'pending'}
  Write-WallpaperLaunchResult $launchResult $state.error.code
  $reply
 }catch{

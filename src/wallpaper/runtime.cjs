@@ -3,10 +3,13 @@ const {createStore}=require('./store.cjs'),{migrateLegacy}=require('./migration.
 const {WallpaperHost}=require('./host.cjs'),{WallpaperController}=require('./controller.cjs'),{WallpaperPanel}=require('./panel.cjs'),{createPresets}=require('./presets.cjs'),{createCommandHandler}=require('./commands.cjs'),{prepareRenderer}=require('./renderer.cjs'),{chooseFile}=require('./file-dialog.cjs');
 const {detectLayout}=require('../adapters.cjs');
 const {ensureSettingsV2}=require('./settings-migration.cjs');
-async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path.join(projectRoot,'.state/wallpaper'),runtimeRoot,roots,windowVisible,services,mountPanel=true,Host=WallpaperHost,Panel=WallpaperPanel}){
+async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path.join(projectRoot,'.state/wallpaper'),runtimeRoot,roots,windowVisible,hostResponsive=()=>true,services,mountPanel=true,Host=WallpaperHost,Panel=WallpaperPanel}){
+ const assertResponsive=()=>{if(!hostResponsive())throw Object.assign(new Error('Host is not responding'),{code:'HOST_UNRESPONSIVE'})};
+ assertResponsive();
  // Remove only verified legacy nodes, before measuring native surfaces. No legacy ThemeSession runs alongside this runtime.
  await client.evaluate(`(()=>{for(const id of ['miku-desktop-theme-v1','miku-live-scene-layer','miku-desktop-theme-toggle']){const n=document.getElementById(id);if(n&&n.dataset.owner!=='miku-desktop-theme')throw new Error('Legacy owner mismatch');n?.remove()}})()`);
- if(!mountPanel)await client.evaluate(`(()=>{const p=window.__codexWallpaperPanel;if(p?.owner==='codex-wallpaper')p.dispose()})()`);
+ if(!mountPanel){assertResponsive();await client.evaluate(`(()=>{const p=window.__codexWallpaperPanel;if(p?.owner==='codex-wallpaper')p.dispose()})()`)}
+ assertResponsive();
  const host=new Host(client,identity.appVersion),layout=detectLayout(await host.inspect(),identity.appVersion);if(!['codex','chatgpt'].includes(layout.kind))throw Object.assign(new Error(layout.reason),{code:'UNSUPPORTED_LAYOUT'});
  const store=services?.store||createStore(dataRoot),saved=await store.load(),library=services?.library||createLibrary({roots:roots??[...await discoverSteamRoots(),...saved.library.roots],dataRoot,runtimeRoot});if(!services?.library)await library.scan();
  try{
@@ -17,13 +20,16 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
   }});
  }catch(e){if(!services?.library)await library.close();throw e}
  await ensureSettingsV2(dataRoot);
+ const {usesStill,resolveSceneStill}=require('./scene-still.cjs');
+ let startupImage=services?.startupImage;
+ const takeStartupImage=()=>{const pending=startupImage;startupImage=null;return pending};
  const controller=new WallpaperController({store,library,host,prepareRenderer:async(entry,playback,options)=>{
-  const still=require('./scene-still.cjs').usesStill(entry,playback)?await require('./scene-still.cjs').resolveSceneStill({entry,dataRoot,preferredFrame:options.stillFrame,validate:uri=>host.validateImage(uri),signal:options.signal}):undefined;
+  const still=usesStill(entry,playback)?await resolveSceneStill({entry,dataRoot,preferredFrame:options.stillFrame,preloaded:await takeStartupImage(),validate:uri=>{assertResponsive();return host.validateImage(uri)},signal:options.signal}):undefined;
   return services?.rendererService?services.rendererService.prepare(entry,playback,{...options,still,hostGeneration:identity.generation}):prepareRenderer(entry,playback,{...options,still,runtimeRoot});
- },windowVisible}),presets=services?.presets||createPresets({dataRoot,store,library}),panel=mountPanel?new Panel(client,{sessionId:identity.sessionId,appVersion:identity.appVersion}):null;
+ },windowVisible,hostResponsive}),presets=services?.presets||createPresets({dataRoot,store,library}),panel=mountPanel?new Panel(client,{sessionId:identity.sessionId,appVersion:identity.appVersion}):null;
  const view=()=>services?.appearance?services.appearance.view():Promise.resolve({...controller.snapshot(),cards:library.cards(controller.settings),presets:[]});
  let viewportJob;
- const measureViewport=()=>{if(!host.viewport)return Promise.resolve();if(viewportJob)return viewportJob;const job=host.viewport().then(value=>controller.setViewport(value));viewportJob=job;job.then(()=>{if(viewportJob===job)viewportJob=null},()=>{if(viewportJob===job)viewportJob=null});return job};
+ const measureViewport=()=>{if(!host.viewport||!hostResponsive())return Promise.resolve();if(viewportJob)return viewportJob;const job=host.viewport().then(value=>controller.setViewport(value));viewportJob=job;job.then(()=>{if(viewportJob===job)viewportJob=null},()=>{if(viewportJob===job)viewportJob=null});return job};
  const resized=event=>{if(event.method==='Page.frameResized'&&(!windowVisible||windowVisible()))measureViewport().catch(()=>{})};
  let confirmation=null,confirmedAt=0,lastPreviewWrite=0,previewWrite;
  const previewCache=path.join(dataRoot,'last-wallpaper-frame.json');
@@ -38,18 +44,17 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
   let placeholder;
   if(services&&saved.enabled&&saved.wallpaper.enabled&&host.validateImage){
    const entry=library.get(saved.wallpaper.selectedId);
-   if(entry)try{
-    const preloaded=await services.startupImage;
-    const image=await require('./scene-still.cjs').resolveSceneStill({entry,dataRoot,preloaded,validate:uri=>host.validateImage(uri)});
+   if(entry&&!usesStill(entry,{...saved.playback,powerSaving:saved.performance.powerSaving}))try{
+    const image=await resolveSceneStill({entry,dataRoot,preloaded:await takeStartupImage(),validate:uri=>{assertResponsive();return host.validateImage(uri)}});
     if(image.source!=='empty'){
-     await host.apply(saved);if(await host.paint(image.uri)===false)throw Error('Startup image paint rejected');
-     if(host.confirmImage&&!await host.confirmImage(image.uri))throw Error('Startup image decode failed');
-     if(entry.kind==='scene'&&saved.playback.sceneLive!==false&&!saved.performance.powerSaving)placeholder={...image,selectedId:entry.id};
+     assertResponsive();await host.apply(saved);assertResponsive();if(await host.paint(image.uri)===false)throw Error('Startup image paint rejected');
+     assertResponsive();if(host.confirmImage&&!await host.confirmImage(image.uri))throw Error('Startup image decode failed');
+     if(['scene','video'].includes(entry.kind))placeholder={...image,selectedId:entry.id};
     }
    }catch{/* Optional cached image never substitutes for live-renderer validation. */}
   }
-  client.on?.('notification',resized);await controller.start({placeholder});controller.initialRequest?.then(saveCurrentFrame);if(services?.appearance)await services.appearance.attach(controller,identity.generation);
-  if(panel){const handler=services?.appearance?{dispatch:command=>services.appearance.dispatch(command),close(){}}:createCommandHandler({sessionId:identity.sessionId,panelId:panel.panelId,controller,library,presets,chooseFile:options=>chooseFile({...options,ownerPid:identity.pid})});await panel.mount(handler);await panel.update(await view(),library.cards(controller.settings),await presets.list())}if(host.confirmApplied){confirmation=await host.confirmApplied(controller.settings);confirmedAt=Date.now()}
+  assertResponsive();client.on?.('notification',resized);await controller.start({placeholder});controller.initialRequest?.then(saveCurrentFrame);assertResponsive();if(services?.appearance)await services.appearance.attach(controller,identity.generation);
+  if(panel){const handler=services?.appearance?{dispatch:command=>services.appearance.dispatch(command),close(){}}:createCommandHandler({sessionId:identity.sessionId,panelId:panel.panelId,controller,library,presets,chooseFile:options=>chooseFile({...options,ownerPid:identity.pid})});await panel.mount(handler);await panel.update(await view(),library.cards(controller.settings),await presets.list())}assertResponsive();if(host.confirmApplied){confirmation=await host.confirmApplied(controller.settings);confirmedAt=Date.now()}
  }catch(e){client.off?.('notification',resized);await panel?.unmount();await controller.close();if(services?.appearance)await services.appearance.detach(identity.generation);if(!services?.library)await library.close();throw e}
  return {
   controller,library,presets,panel,host,
@@ -67,7 +72,7 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
     await measureViewport();
     const imageMissing=!!(controller.active&&controller.settings.enabled&&controller.settings.wallpaper.enabled&&!await client.evaluate(`!!document.getElementById('codex-wallpaper-layer')`));await controller.refreshHost({imageMissing});
    }
-   if(services?.rendererService){const metrics=sample?sample.metrics:host.imageMetrics?await host.imageMetrics():null;services.rendererService.observeReceiver({...metrics,playing:!!(!controller.active?.status.still&&controller.settings.enabled&&controller.settings.wallpaper.enabled&&!controller.settings.playback.paused&&(!controller.settings.playback.pauseWhenHidden||!windowVisible||windowVisible()))});await services.rendererService.refresh()}
+   if(services?.rendererService){const metrics=sample?sample.metrics:host.imageMetrics?await host.imageMetrics():null;services.rendererService.observeReceiver({...metrics,playing:!!(!controller.active?.status.still&&controller.settings.enabled&&controller.settings.wallpaper.enabled&&!controller.settings.playback.paused&&!controller.outputSuspended())});await services.rendererService.refresh()}
    if(panel&&!await panel.update(await view(),library.cards(controller.settings),await presets.list()))throw new Error('Wallpaper panel needs remount');
    saveCurrentFrame();
    if(sample){confirmation=sample.proof;confirmedAt=Date.now()}

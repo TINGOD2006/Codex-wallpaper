@@ -15,3 +15,15 @@ test('visibility monitoring recovers after exit, ignores old samples and never r
  children[1].stdout.emit('data','{"visible":true}\n');assert.equal(monitor.visible,true);
  children[1].emit('error',new Error('lost'));assert.equal(timers.size,1);monitor.close();assert.equal(timers.size,0);
 });
+test('an unresponsive visible HWND stays suspended until a responsive sample settles',()=>{
+ let now=0,child;const monitor=new WindowMonitor('fixture.json',{now:()=>now,spawnProcess(){child=new EventEmitter();child.stdout=Object.assign(new EventEmitter(),{setEncoding(){}});child.kill=()=>{};return child}});
+ const sample=(unresponsive,visible=true)=>child.stdout.emit('data',JSON.stringify({visible,unresponsive})+'\n');
+ try{
+  sample(false);now=1000;assert.equal(monitor.stableVisible,true);
+  sample(true);assert.equal(monitor.visible,true);assert.equal(monitor.stableResponsive,false);assert.equal(monitor.stableVisible,false);
+  sample(null,false);assert.equal(monitor.stableResponsive,false);
+  now=2000;sample(false);assert.equal(monitor.stableResponsive,false);
+  now=2499;sample(false);assert.equal(monitor.stableVisible,false);
+  now=2500;assert.equal(monitor.stableResponsive,true);assert.equal(monitor.stableVisible,true);
+ }finally{monitor.close()}
+});

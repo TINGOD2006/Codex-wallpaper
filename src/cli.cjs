@@ -2,11 +2,22 @@ const path=require('node:path'),fs=require('node:fs/promises'),{execFile}=requir
 const {loadConfig,saveConfig,readJson}=require('./config.cjs'),{Protocol,selectTarget}=require('./protocol.cjs'),{sendCommand}=require('./control.cjs');
 const run=promisify(execFile),project=path.resolve(__dirname,'..'),stateRoot=path.join(project,'.state'),identityPath=path.join(stateRoot,'session.json'),configPath=path.join(project,'config.json'),statusPath=path.join(stateRoot,'status.json');
 function alive(pid){try{process.kill(pid,0);return true}catch(error){return error.code==='EPERM'}}
-async function verifyIdentity(file){await run(process.env.MIKU_PWSH||'pwsh',['-NoProfile','-File',path.join(project,'scripts/windows-session.ps1'),'-Operation','Verify','-IdentityPath',file],{windowsHide:true,timeout:12000,maxBuffer:65536})}
-async function connectManaged(file){
- const identity=await readJson(file);if(!Number.isInteger(identity.port)||identity.port<1||identity.port>65535)throw new Error('Invalid managed port');await verifyIdentity(file);
- const response=await fetch(`http://127.0.0.1:${identity.port}/json/list`,{signal:AbortSignal.timeout(5000)});if(!response.ok)throw new Error('Cannot read managed target list');
- const target=selectTarget(await response.json(),identity),client=await Protocol.connect(target,identity);try{await client.send('Page.enable')}catch(error){client.close();throw error}return {client,identity};
+async function verifyIdentity(file,signal){await run(process.env.MIKU_PWSH||'pwsh',['-NoProfile','-File',path.join(project,'scripts/windows-session.ps1'),'-Operation','Verify','-IdentityPath',file],{windowsHide:true,timeout:12000,maxBuffer:65536,signal})}
+async function connectManaged(file,{signal}={}){
+ signal?.throwIfAborted();const identity=await readJson(file);if(!Number.isInteger(identity.port)||identity.port<1||identity.port>65535)throw new Error('Invalid managed port');await verifyIdentity(file,signal);
+ const deadline=AbortSignal.timeout(5000),targetSignal=signal?AbortSignal.any([signal,deadline]):deadline;
+ let targets;
+ try{
+  const response=await fetch(`http://127.0.0.1:${identity.port}/json/list`,{signal:targetSignal});
+  if(!response.ok)throw new Error('Cannot read managed target list');
+  targets=await response.json();
+ }catch(error){signal?.throwIfAborted();if(!deadline.aborted)throw error;throw Object.assign(error,{code:'HOST_ENDPOINT_PENDING'})}
+ const target=selectTarget(targets,identity),client=await Protocol.connect(target,identity,{signal});
+ try{
+  signal?.addEventListener('abort',close,{once:true});signal?.throwIfAborted();await client.send('Page.enable');
+ }catch(error){client.close();throw error}finally{signal?.removeEventListener('abort',close)}
+ return {client,identity};
+ function close(){client.close()}
 }
 async function status(){
  let identity,stored;try{identity=await readJson(identityPath);stored=await readJson(statusPath)}catch(error){if(error.code==='ENOENT')return {state:'stopped',enabled:false,panelReady:false};throw error}

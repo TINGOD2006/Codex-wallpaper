@@ -13,13 +13,24 @@ Add-Content -LiteralPath $env:CW_FIXTURE_MARKER -Value 'native-invoked'
 function Start-WallpaperBootAnimation {param($ProjectRoot,[ref]$Reason)return $null}
 function Set-WallpaperBootFailure {param($Context)}
 '@|Set-Content -LiteralPath (Join-Path $scripts 'boot-animation.ps1') -Encoding utf8
-[IO.File]::WriteAllText((Join-Path $source 'command.cjs'),"const fs=require('node:fs');fs.appendFileSync(process.env.CW_FIXTURE_MARKER,'node-client\n');if(process.env.CW_FIXTURE_MODE==='SERVICE_OFFLINE')process.exit(2);console.log(fs.readFileSync(process.env.CW_FIXTURE_STATE,'utf8'))")
+Copy-Item -LiteralPath (Join-Path $project 'scripts/start-companion.ps1') -Destination (Join-Path $scripts 'start-companion.ps1')
 @'
-param($Action,[switch]$Integrated,[switch]$Quiet,[switch]$SettleLaunch)
-if($Action -ne 'Start' -or -not $Integrated -or -not $SettleLaunch){throw 'Cold service startup must return the shared client launch state'}
-Add-Content -LiteralPath $env:CW_FIXTURE_MARKER -Value 'shared-startup-client'
-Get-Content -LiteralPath $env:CW_FIXTURE_STATE -Raw
-'@|Set-Content -LiteralPath (Join-Path $scripts 'start-companion.ps1') -Encoding utf8
+const fs=require('node:fs'),args=process.argv.slice(2).join(' ');
+fs.appendFileSync(process.env.CW_FIXTURE_MARKER,args+'\n');
+if(args==='launch --settle'&&process.env.CW_FIXTURE_MODE==='SERVICE_OFFLINE')process.exit(2);
+if(!['launch --settle','wait-ready --settle-launch'].includes(args))process.exit(3);
+console.log(fs.readFileSync(process.env.CW_FIXTURE_STATE,'utf8'));
+'@|Set-Content -LiteralPath (Join-Path $source 'command.cjs') -Encoding utf8
+@'
+function Get-CompanionInstallRoot {Split-Path (Split-Path $PSScriptRoot)}
+'@|Set-Content -LiteralPath (Join-Path $scripts 'companion-paths.ps1') -Encoding utf8
+@'
+function Start-ThemeIndependentProcess {
+ param($PowerShellPath,$ScriptPath,$WorkingDirectory)
+ if([IO.Path]::GetFileName($ScriptPath) -ne 'companion-integrated-worker.ps1'){throw 'Expected integrated worker'}
+ Add-Content -LiteralPath $env:CW_FIXTURE_MARKER -Value 'worker-start';@{pid=123456}
+}
+'@|Set-Content -LiteralPath (Join-Path $scripts 'windows-independent.ps1') -Encoding utf8
 foreach($name in @('install-wallpaper-entry.ps1','install-codex-taskbar-entry.ps1','install-codex-user-shortcuts.ps1')){[IO.File]::WriteAllText((Join-Path $scripts $name),'# Owned no-op fixture')}
 @{appVersion='fixture'}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $assets 'entry-refreshed') -Encoding utf8
 (Get-Item -LiteralPath (Join-Path $assets 'entry-refreshed')).LastWriteTimeUtc=[DateTime]::UtcNow.AddMinutes(1)
@@ -27,11 +38,11 @@ $previousState=$env:CW_FIXTURE_STATE;$previousMarker=$env:CW_FIXTURE_MARKER;$pre
 $env:CW_FIXTURE_STATE=Join-Path $fixture 'reply.json';$env:CW_FIXTURE_MARKER=Join-Path $fixture 'native.txt';$pwsh=(Get-Process -Id $PID).Path
 $results=@()
 try{
- foreach($code in @('HOST_ENDPOINT_PENDING','HOST_TRANSPORT_UNAVAILABLE','HOST_NEEDS_MANAGED_LAUNCH','NODE_MISSING','SERVICE_OFFLINE','NATIVE_FAIL')){
+ foreach($code in @('HOST_ENDPOINT_PENDING','HOST_UNRESPONSIVE','HOST_TRANSPORT_UNAVAILABLE','HOST_NEEDS_MANAGED_LAUNCH','NODE_MISSING','SERVICE_OFFLINE','NATIVE_FAIL')){
   if(Test-Path -LiteralPath $env:CW_FIXTURE_MARKER){Remove-Item -LiteralPath $env:CW_FIXTURE_MARKER}
   $env:CW_FIXTURE_NATIVE_FAIL=if($code -eq 'NATIVE_FAIL'){'1'}else{'0'}
   $env:CW_FIXTURE_MODE=$code
-  @{ok=$true;state=@{phase='checking';desired=@{enabled=$true;wallpaperEnabled=$true};observed=@{connected=$false;applied=$false;appVersion='fixture'};error=@{code=$code;message='Owned wallpaper failure'}}}|ConvertTo-Json -Depth 6|Set-Content -LiteralPath $env:CW_FIXTURE_STATE -Encoding utf8
+  @{ok=$true;state=@{mode='integrated';phase='checking';desired=@{enabled=$true;wallpaperEnabled=$true};observed=@{connected=$false;applied=$false;appVersion='fixture'};error=@{code=$code;message='Owned wallpaper failure'}}}|ConvertTo-Json -Depth 6|Set-Content -LiteralPath $env:CW_FIXTURE_STATE -Encoding utf8
   $wrapper=Join-Path $fixture ($code+'.ps1');$launcher=(Join-Path $scripts 'launch-wallpaper.ps1').Replace("'","''")
   $prefix=if($code -eq 'NODE_MISSING'){'function Get-Command {param($Name,$ErrorAction)if($Name -eq ''node''){throw ''Owned missing Node''}}' + "`n"}else{''}
   $quiet=if($code -eq 'NATIVE_FAIL'){' -Quiet'}else{''}
@@ -42,7 +53,8 @@ try{
   if($child.ExitCode -ne 0){throw ('Wallpaper failure blocked native launch: '+$code+' '+(Get-Content -LiteralPath (Join-Path $fixture ($code+'.stderr')) -Raw))}
   $calls=@(Get-Content -LiteralPath $env:CW_FIXTURE_MARKER);if($calls -notcontains 'native-invoked' -or $calls -notcontains 'native-activation'){throw ('Original native activation was skipped: '+$code)}
   $record=Get-Content -LiteralPath (Join-Path $fixture 'logs/last-launch.json') -Raw|ConvertFrom-Json;if(-not $record.nativeInvoked){throw 'Native launch evidence missing'}
-  if($code -eq 'SERVICE_OFFLINE' -and (@($calls|Where-Object {$_ -eq 'node-client'}).Count -ne 1 -or $calls -notcontains 'shared-startup-client' -or $record.code -eq 'WALLPAPER_BOOTSTRAP_FAILED')){throw 'Cold service startup repeated verification or lost its launch reply'}
+  if($code -eq 'SERVICE_OFFLINE' -and (($calls -join ',') -ne 'native-invoked,launch --settle,worker-start,wait-ready --settle-launch,native-activation' -or $record.code -eq 'WALLPAPER_BOOTSTRAP_FAILED')){throw 'Cold service startup repeated verification or lost its launch reply'}
+  if($code -in @('HOST_ENDPOINT_PENDING','HOST_UNRESPONSIVE') -and $record.result -ne 'pending'){throw 'Transient host state was not reported as pending'}
   $results+=@{case=$code;nativeLaunchContinues=$true;noModal=$true;exitCode=$child.ExitCode}
  }
  @{pass=$true;nativeErrorsRemainErrors=$true;cases=$results}|ConvertTo-Json -Depth 4

@@ -7,6 +7,8 @@ test('animation readiness requires real applied proof or a connected host with d
  assert.equal(sessionState(id,{desired:{enabled:false},observed:{connected:true}},host).Ready,true);assert.equal(sessionState(id,{desired:{enabled:false},observed:{connected:false}},host).Ready,false);assert.equal(sessionState(id,{observed:{applied:true}},null).Ready,false);
  assert.equal(sessionState(id,{error:{code:'ADAPTER_LAYOUT_MISMATCH'},observed:{applied:false}},host).Failed,true);
  assert.equal(sessionState(id,{error:{code:'HOST_ENDPOINT_PENDING'},observed:{applied:false}},host).Failed,false);
+ const hung=sessionState(id,{desired:{enabled:false},error:{code:'HOST_UNRESPONSIVE'},observed:{hostUnresponsive:true,applied:false,connected:true}},host);
+ assert.equal(hung.Ready,false);assert.equal(hung.Failed,false);assert.equal(hung.HostPid,42);
  assert.equal(sessionState(id,{error:{code:'HOST_ENDPOINT_TIMEOUT'},observed:{applied:false}},host).Failed,true);
  assert.equal(sessionState(id,{error:{code:'RENDERER_FAILED'},observed:{applied:true}},host).Failed,false);
 });
