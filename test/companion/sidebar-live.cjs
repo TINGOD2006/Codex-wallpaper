@@ -20,9 +20,20 @@ const {createAppearanceService}=require('../../src/companion/appearance-service.
   assert.equal(await engine.client.evaluate(`document.querySelector('.cw-grid').dataset.view`),'list');
   assert.equal(await engine.client.evaluate(`document.querySelector('button[data-view="list"]').getAttribute('aria-pressed')`),'true');
   assert.equal(await engine.client.evaluate(`document.querySelector('.cw-body').scrollWidth<=document.querySelector('.cw-body').clientWidth`),true);
+  const preferencesFile=path.join(paths.data,'sidebar-preferences.json');
+  let savedView;
+  for(let n=0;n<30&&savedView!=='list';n++){
+   savedView=await fs.readFile(preferencesFile,'utf8').then(text=>JSON.parse(text).libraryView,()=>null);
+   if(savedView!=='list')await delay(100);
+  }
+  assert.equal(savedView,'list');
+  await engine.client.send('Page.navigate',{url:server.issueBootstrap('/sidebar')});
+  await until(`document.querySelector('.cw-grid')?.dataset.view==='list'&&!document.getElementById('codex-wallpaper-panel')?.hidden`);
+  await until(`!!document.querySelector('.cw-card img[src]')`);
+  thumbnailRequests.length=0;
   await engine.client.evaluate(`document.querySelector('[data-id="builtin:miku"] .cw-pick').click()`);
   await until(`document.querySelector('.cw-now-info strong').textContent==='初音靜態插畫'&&!!document.querySelector('.cw-now img[src]')`);
-  assert.equal(thumbnailRequests.filter(id=>id==='builtin:miku').length,1,'The selected tile and card share the same preview');
+  assert.equal(thumbnailRequests.filter(id=>id==='builtin:miku').length,0,'Selecting a cached preview does not request it again');
   await engine.client.evaluate(`document.querySelector('.cw-quick-actions button').click()`);
   await until(`document.querySelector('.cw-quick-actions button').textContent==='繼續'`);
   assert.equal((await store.load()).playback.paused,true);

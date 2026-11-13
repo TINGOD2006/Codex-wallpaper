@@ -1,7 +1,7 @@
 /* Only this owned UI is injected; all user supplied strings use textContent. */
 function mountWallpaperPanel(options){
  'use strict';
- const {sessionId,panelId,binding,css,fullWindowMaterials}=options;
+ const {sessionId,panelId,binding,css,fullWindowMaterials,saveLibraryView}=options;
  const OWNER='codex-wallpaper',old=window.__codexWallpaperPanel;
  if(old?.owner===OWNER&&old.panelId===panelId&&document.getElementById('codex-wallpaper-button'))return true;
  old?.owner===OWNER&&old.dispose();
@@ -107,13 +107,28 @@ function mountWallpaperPanel(options){
  const libraryBar=el('div',null,{class:'cw-library-bar'}),resultCount=el('span','',{class:'cw-muted'});
  const viewModes=el('div',null,{class:'cw-segments',role:'group','aria-label':'桌布庫檢視'});
  const viewKey='codex-wallpaper.library-view';
- let libraryView='cards';try{if(localStorage.getItem(viewKey)==='list')libraryView='list'}catch{}
+ let libraryView=options.libraryView==='list'?'list':'cards';
+ if(!saveLibraryView)try{if(localStorage.getItem(viewKey)==='list')libraryView='list'}catch{}
  const grid=el('div',null,{class:'cw-grid','data-view':libraryView});
+ let viewWrites=Promise.resolve(),viewChange=0,confirmedView=libraryView;
+ function setLibraryView(view){
+  libraryView=view;grid.dataset.view=view;
+  for(const other of viewModes.children)other.setAttribute('aria-pressed',String(other.dataset.view===view));
+ }
  for(const [value,label]of [['cards','卡片'],['list','清單']]){
   const toggle=button(label,()=>{
-   libraryView=value;grid.dataset.view=value;
-   for(const other of viewModes.children)other.setAttribute('aria-pressed',String(other.dataset.view===value));
-   try{localStorage.setItem(viewKey,value)}catch{}
+   if(value===libraryView)return;
+   setLibraryView(value);
+   if(!saveLibraryView){try{localStorage.setItem(viewKey,value)}catch{}return}
+   const change=++viewChange;
+   viewWrites=viewWrites.then(async()=>{
+    try{await saveLibraryView(value);confirmedView=value}
+    catch{
+     if(closed||viewChange!==change)return;
+     setLibraryView(confirmedView);
+     error.textContent='無法儲存卡片／清單偏好，請重試。';
+    }
+   });
   },viewModes);
   toggle.dataset.view=value;toggle.setAttribute('aria-pressed',String(libraryView===value));
  }

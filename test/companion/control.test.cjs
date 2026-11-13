@@ -39,3 +39,24 @@ test('bootstrap is single-use and diagnostics never export private error text or
  }finally{await server.close()}
  await assert.rejects(fs.access(path.join(paths.runtime,'manager.json')));
 });
+
+test('sidebar view preference survives service replacement and never changes wallpaper settings',async()=>{
+ const paths=resolvePaths({localAppData:await fs.mkdtemp(path.join(os.tmpdir(),'cw-sidebar-preference-'))});
+ const supervisor={instanceId:'fixture',snapshot:()=>({instanceId:'fixture'})};
+ const start=()=>startControlServer({paths,supervisor,appearance:{view:async()=>({})},protect:async()=>{}});
+ const {connectCompanion}=require('../../src/companion/control-client.cjs');
+ let server=await start();
+ try{
+  const client=await connectCompanion({paths,verifyProcess:async()=>true});
+  assert.equal((await client.request('view')).result.libraryView,'cards');
+  await assert.rejects(client.request('sidebar.library-view',{view:'other'}));
+  await assert.rejects(client.request('sidebar.library-view',{view:'list',enabled:false}));
+  assert.equal((await client.request('sidebar.library-view',{view:'list'})).result.libraryView,'list');
+  client.close();
+  await server.close();server=await start();
+  const reopened=await connectCompanion({paths,verifyProcess:async()=>true});
+  assert.equal((await reopened.request('view')).result.libraryView,'list');
+  reopened.close();
+  await assert.rejects(fs.access(path.join(paths.data,'user-settings.json')),{code:'ENOENT'});
+ }finally{await server.close()}
+});

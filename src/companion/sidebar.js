@@ -22,7 +22,12 @@ async function poll(){
  }finally{sidebarPolling=false}
 }
 (async()=>{const nonce=location.hash.slice(1);history.replaceState(null,'',location.pathname);if(nonce){const response=await fetch('/api/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nonce})});if(!response.ok)throw new Error('入口已過期，請重新點擊桌布按鈕。')}
- const reply=await request('view');mountWallpaperPanel({sessionId:reply.state.instanceId,panelId:crypto.randomUUID(),binding:'sidebarPanelCommand',css:'',fullWindowMaterials:reply.result.fullWindowMaterials});window.__codexWallpaperPanel.update(reply.result);
+ const reply=await request('view');
+ mountWallpaperPanel({sessionId:reply.state.instanceId,panelId:crypto.randomUUID(),binding:'sidebarPanelCommand',css:'',
+  fullWindowMaterials:reply.result.fullWindowMaterials,libraryView:reply.result.libraryView,
+  saveLibraryView:view=>request('sidebar.library-view',{view})
+ });
+ window.__codexWallpaperPanel.update(reply.result);
  const panel=document.getElementById('codex-wallpaper-panel'),status=document.createElement('div');status.className='cw-host-state';status.setAttribute('role','status');
  const message=document.createElement('div'),action=document.createElement('button'),failure=document.createElement('div');action.type='button';action.className='cw-recovery-action';failure.setAttribute('role','alert');status.append(message,action,failure);panel.querySelector('nav').before(status);
  recovery=wallpaperRecovery.create({

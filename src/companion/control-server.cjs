@@ -1,5 +1,5 @@
 const http=require('node:http'),fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto'),{execFile}=require('node:child_process'),{promisify}=require('node:util');
-const {atomicJson}=require('../config.cjs'),{errorInfo}=require('./status.cjs'),{exportDiagnostics}=require('./diagnostics.cjs');
+const {atomicJson,readJson}=require('../config.cjs'),{errorInfo}=require('./status.cjs'),{exportDiagnostics}=require('./diagnostics.cjs');
 const {FULL_WINDOW_MATERIALS}=require('../wallpaper/styles.cjs');
 const run=promisify(execFile);let processIdentity;
 const exact=(p,keys)=>p&&typeof p==='object'&&!Array.isArray(p)&&Object.keys(p).length===keys.length&&keys.every(k=>Object.hasOwn(p,k));
@@ -8,12 +8,24 @@ async function nativeProtect(folder){await run(process.env.MIKU_PWSH||'pwsh',['-
 async function identity(){if(!processIdentity)processIdentity=run(process.env.MIKU_PWSH||'pwsh',['-NoProfile','-File',path.resolve(__dirname,'../../scripts/companion-security.ps1'),'-Operation','Stamp','-ManagerPid',String(process.pid)],{windowsHide:true,timeout:10000}).then(r=>JSON.parse(r.stdout));return processIdentity}
 async function startControlServer({paths,supervisor,appearance,recoverEntry=async()=>{},showWindow=async()=>{},onExit=async()=>{},protect=nativeProtect}){
  await fs.mkdir(paths.runtime,{recursive:true});const [,stamp]=await Promise.all([protect(paths.runtime),identity()]);
+ const preferencesFile=path.join(paths.data,'sidebar-preferences.json');
+ const savedPreferences=await readJson(preferencesFile).catch(()=>null);
+ let libraryView=savedPreferences?.libraryView==='list'?'list':'cards',preferenceWrites=Promise.resolve();
  const token=crypto.randomBytes(32).toString('hex'),nonces=new Map(),sessions=new Map(),cache=new Map(),sequences=new Map();let address,closed=false;
  const send=(res,status,data,headers={})=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers});res.end(JSON.stringify(data))};
  const publicState=()=>({...supervisor.snapshot(),rendering:appearance.rendering?.()||null});
  async function execute(action,p){
   switch(action){
-   case 'status':case 'view':if(!exact(p,[]))throw new Error('Invalid payload');return action==='view'?{...await appearance.view(),fullWindowMaterials:FULL_WINDOW_MATERIALS}:undefined;
+   case 'status':case 'view':if(!exact(p,[]))throw new Error('Invalid payload');return action==='view'?{...await appearance.view(),fullWindowMaterials:FULL_WINDOW_MATERIALS,libraryView}:undefined;
+   case 'sidebar.library-view':{
+    if(!exact(p,['view'])||!['cards','list'].includes(p.view))throw new Error('Invalid library view');
+    const save=preferenceWrites.then(async()=>{
+     if(p.view!==libraryView){await atomicJson(preferencesFile,{libraryView:p.view});libraryView=p.view}
+     return {libraryView};
+    });
+    preferenceWrites=save.catch(()=>{});
+    return save;
+   }
    case 'enable-wallpaper':if(!exact(p,[]))throw new Error('Invalid enable request');await supervisor.enableWallpaper();break;
    case 'set-enabled':if(!exact(p,['enabled'])||typeof p.enabled!=='boolean')throw new Error('Invalid enabled');await supervisor.setEnabled(p.enabled);break;
    case 'reconnect':if(!exact(p,[]))throw new Error('Invalid payload');await supervisor.reconnect();await recoverEntry();break;
@@ -62,6 +74,6 @@ async function startControlServer({paths,supervisor,appearance,recoverEntry=asyn
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve)});address=`http://127.0.0.1:${server.address().port}`;
  let descriptor;const file=path.join(paths.runtime,'manager.json');try{descriptor={...stamp,schemaVersion:1,instanceId:supervisor.instanceId,host:'127.0.0.1',port:server.address().port,token,entryFile:path.resolve(process.argv[1])};await atomicJson(file,descriptor)}catch(e){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));throw e}
  function issueBootstrap(route='/'){if(!['/','/sidebar'].includes(route))throw new Error('Invalid view');const nonce=crypto.randomBytes(24).toString('hex');nonces.set(nonce,Date.now()+60000);if(nonces.size>16)nonces.delete(nonces.keys().next().value);return address+route+'#'+nonce}
- return {descriptor,address,issueBootstrap,async close(){if(closed)return;closed=true;nonces.clear();sessions.clear();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));try{const value=JSON.parse(await fs.readFile(file,'utf8'));if(value.instanceId===descriptor.instanceId)await fs.unlink(file)}catch(e){if(e.code!=='ENOENT')throw e}}};
+ return {descriptor,address,issueBootstrap,async close(){if(closed)return;closed=true;nonces.clear();sessions.clear();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));await preferenceWrites;try{const value=JSON.parse(await fs.readFile(file,'utf8'));if(value.instanceId===descriptor.instanceId)await fs.unlink(file)}catch(e){if(e.code!=='ENOENT')throw e}}};
 }
 module.exports={startControlServer,matchesToken};
