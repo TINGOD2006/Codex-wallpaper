@@ -27,3 +27,20 @@ test('disconnect waits for a setting write and old generations cannot replace th
  assert.equal((await service.view()).settings.reading.offsetX,-90);assert.equal(await service.detach(1),false);
  assert.equal(await service.attach(active,1),false);await service.close();
 });
+test('background reconciliation leaves library and preset reads to the appearance view',async()=>{
+ const {createSupervisor}=require('../../src/companion/supervisor.cjs');
+ const store=createStore(await fs.mkdtemp(path.join(os.tmpdir(),'cw-reconcile-')));
+ let cards=0,presets=0;
+ const appearance=await createAppearanceService({store,library:{cards(){cards++;return []}},presets:{async list(){presets++;return []}}});
+ const hosts={scan:async()=>[],watch:()=>({close(){}}),close(){}};
+ const supervisor=createSupervisor({hosts,runner:{},appearance,clock:{now:Date.now,setInterval:()=>1,clearInterval(){},setTimeout:()=>1,clearTimeout(){}}});
+ try{
+  await supervisor.start();
+  await supervisor.reconcile();
+  await supervisor.setEnabled(false);
+  assert.equal(supervisor.snapshot().desired.enabled,false);
+  assert.deepEqual({cards,presets},{cards:0,presets:0});
+  assert.equal((await appearance.view()).settings.enabled,false);
+  assert.deepEqual({cards,presets},{cards:1,presets:1});
+ }finally{await supervisor.close();await appearance.close()}
+});

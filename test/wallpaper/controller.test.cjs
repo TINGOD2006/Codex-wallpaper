@@ -50,8 +50,10 @@ test('native hang discards a queued live frame and recovers the same renderer ev
  const controller=new WallpaperController({library:{get:()=>({kind:'scene'})},host:{paint:async frame=>paints.push(frame),restoreAll:async()=>{}},hostResponsive:()=>responsive});
  controller.settings.wallpaper.selectedId='scene';controller.settings.playback.pauseWhenHidden=false;controller.active=lease;
  try{
+  controller.renderPlayback=()=>{throw Error('Steady playback must not build renderer configuration')};
   const queued=controller.tick();assert.equal(typeof release,'function');responsive=false;release('stale');await queued;
   await controller.tick();assert.deepEqual(paints,[]);assert.equal(pauses,1);assert.equal(controller.playback.suspended,true);assert.equal(controller.loopDelay(),250);
+  const idleState=controller.playback;await controller.tick();assert.equal(controller.playback,idleState);assert.equal(pauses,1);
   await assert.rejects(controller.patch({reading:{scrim:.5}}),{code:'HOST_UNRESPONSIVE'});
   responsive=true;lease.frame=async()=>'resumed';await controller.tick();
   assert.deepEqual(paints,['resumed']);assert.equal(resumes,1);assert.equal(controller.active,lease);assert.equal(controller.playback.suspended,false);

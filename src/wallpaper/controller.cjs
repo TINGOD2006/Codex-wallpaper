@@ -143,10 +143,20 @@ class WallpaperController {
     const s=this.settings,wanted=s.enabled&&s.wallpaper.enabled&&s.wallpaper.selectedId;
     const idle=!wanted||s.playback.paused||this.outputSuspended(s);
     if(idle){
-      this.samples=[];this.nextDisplayAt=0;
+      if(this.samples?.length)this.samples.length=0;
+      this.nextDisplayAt=0;
       if(!this.idleSince)this.idleSince=now;
       const renderer=this.active,revision=this.revision;
-      await this.commit(async()=>{if(this.closed||this.active!==renderer||this.revision!==revision)return;if(renderer&&renderer.status.state!=='paused')await renderer.pause();if(this.revision!==revision)return;if(renderer&&(!renderer.status.still||!wanted)&&now-this.idleSince>=60000){await renderer.close();this.active=null;this.activeKey=null;this.activeRequestKey=null}if(this.playback.state!=='error')this.playback={...this.playback,state:wanted?(renderer?.status.still?'static':'paused'):'off',suspended:this.outputSuspended(s)}});return;
+      const status=renderer?.status,release=!!renderer&&(!status.still||!wanted)&&now-this.idleSince>=60000;
+      const state=wanted?(status?.still?'static':'paused'):'off',suspended=this.outputSuspended(s);
+      if(!release&&(!renderer||status.state==='paused')&&this.playback.state===state&&this.playback.suspended===suspended)return;
+      await this.commit(async()=>{
+        if(this.closed||this.active!==renderer||this.revision!==revision)return;
+        if(renderer&&renderer.status.state!=='paused')await renderer.pause();
+        if(this.revision!==revision)return;
+        if(release){await renderer.close();this.active=null;this.activeKey=null;this.activeRequestKey=null}
+        if(this.playback.state!=='error')this.playback={...this.playback,state,suspended:this.outputSuspended(s)};
+      });return;
     }
     this.idleSince=0;
     if(this.retryInitialRenderer){this.retryInitialRenderer=false;if(this.active?.status.preview){await this.request(s);return}}
@@ -156,13 +166,15 @@ class WallpaperController {
       this.lastSwitch=now;
     }
     if(!this.active){if(this.playback.state!=='error')await this.request(s);return}
-    if(this.active.status.still){this.playback={...this.playback,state:this.active.status.preview?'loading':'static',suspended:false,displayFps:0,renderFps:0,captureFps:0,staticSource:this.active.status.staticSource};return}
-    if(this.active.status.state==='paused'){const renderer=this.active;await this.commit(async()=>{if(!this.closed&&renderer===this.active&&!this.playback.pendingId&&!this.settings.playback.paused&&!this.outputSuspended())await renderer.resume()});if(this.playback.pendingId||this.closed||this.outputSuspended())return}
-    if(this.library.get(s.wallpaper.selectedId)?.kind==='image'){this.playback={...this.playback,state:'playing',suspended:false};return}
+    const activeStatus=this.active.status;
+    if(activeStatus.still){this.playback={...this.playback,state:activeStatus.preview?'loading':'static',suspended:false,displayFps:0,renderFps:0,captureFps:0,staticSource:activeStatus.staticSource};return}
+    if(activeStatus.state==='paused'){const renderer=this.active;await this.commit(async()=>{if(!this.closed&&renderer===this.active&&!this.playback.pendingId&&!this.settings.playback.paused&&!this.outputSuspended())await renderer.resume()});if(this.playback.pendingId||this.closed||this.outputSuspended())return}
+    if(this.library.get(s.wallpaper.selectedId)?.kind==='image'){if(this.playback.state!=='playing'||this.playback.suspended!==false)this.playback={...this.playback,state:'playing',suspended:false};return}
     const renderer=this.active;let frame;try{frame=await (renderer.nextFrame?renderer.nextFrame():renderer.frame())}catch(error){if(renderer!==this.active||this.closed||this.playback.pendingId||this.outputSuspended())return;throw error}if(renderer!==this.active||this.closed||!this.settings.enabled||!this.settings.wallpaper.enabled||this.settings.playback.paused||this.outputSuspended())return;
-    const effective=this.renderPlayback(s).playback;
-    if(renderer.eventDriven&&effective.displayFps<effective.renderFps){const time=performance.now(),period=1000/effective.displayFps;if(time<(this.nextDisplayAt||0))return;this.nextDisplayAt=!this.nextDisplayAt||time-this.nextDisplayAt>period*2?time+period:this.nextDisplayAt+period}
-    this.playback={...this.playback,state:'playing',suspended:false,renderFps:renderer.status.renderFps,captureFps:renderer.status.captureFps,captureMode:renderer.status.captureMode,captureDiagnostics:renderer.status.captureDiagnostics};
+    const {displayFps,renderFps}=s.playback;
+    if(renderer.eventDriven&&displayFps<renderFps){const time=performance.now(),period=1000/displayFps;if(time<(this.nextDisplayAt||0))return;this.nextDisplayAt=!this.nextDisplayAt||time-this.nextDisplayAt>period*2?time+period:this.nextDisplayAt+period}
+    const status=renderer.status;
+    this.playback={...this.playback,state:'playing',suspended:false,renderFps:status.renderFps,captureFps:status.captureFps,captureMode:status.captureMode,captureDiagnostics:status.captureDiagnostics};
     if(this.paintedRenderer===renderer&&this.paintedFrame===frame)return;
     const painted=await this.commit(async()=>{if(renderer!==this.active||this.closed||!this.settings.enabled||!this.settings.wallpaper.enabled||this.settings.playback.paused||this.playback.pendingId||this.outputSuspended())return false;try{if(await this.paint(frame,renderer)===false)return false}catch(error){if(!this.hostResponsive())return false;throw error}this.paintedFrame=frame;this.paintedRenderer=renderer;return true});if(!painted)return;
     const time=Date.now();this.samples??=[];this.samples.push(time);if(this.samples.length>20)this.samples.shift();if(this.samples.length>1)this.playback.displayFps=Math.round((this.samples.length-1)*10000/(time-this.samples[0]))/10;
@@ -178,7 +190,7 @@ class WallpaperController {
   async run(){while(!this.closed){const then=Date.now();try{await this.tick()}catch(e){if(this.hostResponsive()&&e.code!=='HOST_UNRESPONSIVE'){this.error=e.message;this.failure={retryBlocked:e.retryBlocked===true,retryManaged:e.retryManaged===true};this.playback={...this.playback,state:'error',error:e.message};await this.active?.pause().catch(()=>{})}}const wait=this.loopDelay(Date.now()-then);if(wait>0)await delay(wait)}}
   refreshHost({imageMissing=false}={}){return this.commit(async()=>{
     if(this.closed||!this.hostResponsive())return;
-    const sample=this.host.synchronize?await this.host.synchronize(this.settings):null;
+    const sample=this.host.synchronize?await this.host.synchronize(this.settings,{includeDiagnostics:false}):null;
     if(!this.hostResponsive())return;
     if(!this.settings.enabled){if(!sample)await this.host.restoreAll();return sample}
     if(!sample)await this.host.apply(this.settings);

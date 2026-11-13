@@ -2,12 +2,47 @@ const SUPPORTED_VERSIONS=['26.1021.3705.0','26.1023.6123.0','26.1023.6621.0'];
 const loginSelectors=Object.freeze({canvas:'#root > .zoom-adjusted-viewport:not(.pointer-events-none)',transparentSurface:'#root .flex.h-full.w-full.bg-surface'});
 const desktopSelectors=Object.freeze({canvas:'[data-app-shell-active-page="true"] main[data-app-shell-main-surface="default"]',frame:'[data-app-shell-frame="true"]',sidebar:'.app-shell-left-panel',composer:'[data-app-shell-active-page="true"] [data-composer-body]'});
 const MATERIAL_REGIONS=Object.freeze({chat:desktopSelectors.canvas,sidebar:desktopSelectors.sidebar,composer:'[data-app-shell-active-page="true"] [data-composer-surface-variant]',titlebar:'[data-app-shell-titlebar="true"],[data-app-shell-frame="true"] > [class*="_ApplicationMenuTopBar_"]',panels:'[data-app-shell-frame="true"] [class~="group/summary-panel"],[data-app-shell-frame="true"] [data-app-shell-right-panel],[data-app-shell-frame="true"] [data-editor-search-surface="true"] .cm-editor',overlays:'#codex-wallpaper-panel[data-owner="codex-wallpaper"],[role="dialog"],[role="menu"][data-state="open"],[data-radix-popper-content-wrapper] > [data-state="open"]'});
-const structureExpression=`(() => {
- const visible=e=>{if(e.closest('#codex-wallpaper-panel[data-owner="codex-wallpaper"],#codex-wallpaper-button[data-owner="codex-wallpaper"]'))return false;const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true});};
- const count=s=>[...document.querySelectorAll(s)].filter(visible).length;
- const modes=[...document.querySelectorAll('.app-shell-left-panel button[aria-haspopup="menu"][aria-label]')].filter(visible).map(e=>(e.getAttribute('aria-label')||'').match(/(?:mode|模式).*[:：]\\s*(Codex|ChatGPT)\\s*$/i)?.[1]?.toLowerCase()).filter(Boolean);
- return {rootViewportCount:count('#root > .zoom-adjusted-viewport:not(.pointer-events-none)'),loginSurfaceCount:count('#root .flex.h-full.w-full.bg-surface'),editorCount:count('textarea,[contenteditable="true"]'),composerEditorCount:count('[data-app-shell-active-page="true"] [data-composer-body] textarea,[data-app-shell-active-page="true"] [data-composer-body] [contenteditable="true"]'),auxiliaryEditorCount:count('[data-editor-search-surface="true"] .cm-editor .cm-content[contenteditable="true"][role="textbox"]'),requestEditorCount:count('[data-app-shell-active-page="true"] [data-codex-composer-request-navigation] [data-request-input-other-row] [data-rich-text-layout] [contenteditable="true"][role="textbox"]'),buttonCount:count('button'),activeMainSurfaceCount:count('[data-app-shell-active-page="true"] main[data-app-shell-main-surface="default"]'),frameCount:count('[data-app-shell-frame="true"]'),composerBodyCount:count('[data-app-shell-active-page="true"] [data-composer-body]'),mode:modes.length===1?modes[0]:null,regions:Object.fromEntries(Object.entries(${JSON.stringify(MATERIAL_REGIONS)}).map(([key,selector])=>[key,count(selector)]))};
-})()`;
+function sampleShell(regions,includeDiagnostics){
+ const visibility=new Map();
+ const visible=element=>{
+  if(visibility.has(element))return visibility.get(element);
+  if(element.closest('#codex-wallpaper-panel[data-owner="codex-wallpaper"],#codex-wallpaper-button[data-owner="codex-wallpaper"]')){
+   visibility.set(element,false);return false;
+  }
+  const rect=element.getBoundingClientRect();
+  const result=rect.width>0&&rect.height>0&&element.checkVisibility({checkOpacity:true,checkVisibilityCSS:true});
+  visibility.set(element,result);return result;
+ };
+ const count=selector=>{
+  let total=0;for(const element of document.querySelectorAll(selector))if(visible(element))total++;
+  return total;
+ };
+ let mode=null;
+ for(const button of document.querySelectorAll('.app-shell-left-panel button[aria-haspopup="menu"][aria-label]')){
+  const match=(button.getAttribute('aria-label')||'').match(/(?:mode|模式).*[:：]\s*(Codex|ChatGPT)\s*$/i);
+  if(!match||!visible(button))continue;
+  if(mode){mode=null;break}
+  mode=match[1].toLowerCase();
+ }
+ return {
+  rootViewportCount:count('#root > .zoom-adjusted-viewport:not(.pointer-events-none)'),
+  editorCount:count('textarea,[contenteditable="true"]'),
+  composerEditorCount:count('[data-app-shell-active-page="true"] [data-composer-body] textarea,[data-app-shell-active-page="true"] [data-composer-body] [contenteditable="true"]'),
+  auxiliaryEditorCount:count('[data-editor-search-surface="true"] .cm-editor .cm-content[contenteditable="true"][role="textbox"]'),
+  requestEditorCount:count('[data-app-shell-active-page="true"] [data-codex-composer-request-navigation] [data-request-input-other-row] [data-rich-text-layout] [contenteditable="true"][role="textbox"]'),
+  activeMainSurfaceCount:count('[data-app-shell-active-page="true"] main[data-app-shell-main-surface="default"]'),
+  frameCount:count('[data-app-shell-frame="true"]'),
+  composerBodyCount:count('[data-app-shell-active-page="true"] [data-composer-body]'),
+  mode,
+  ...(includeDiagnostics?{
+   loginSurfaceCount:count('#root .flex.h-full.w-full.bg-surface'),
+   buttonCount:count('button'),
+   regions:Object.fromEntries(Object.entries(regions).map(([key,selector])=>[key,count(selector)]))
+  }:{})
+ };
+}
+const structureExpression=`(${sampleShell.toString()})(${JSON.stringify(MATERIAL_REGIONS)},true)`;
+const desktopContractExpression=`(${sampleShell.toString()})(null,false)`;
 function contractChecks(s){const composer=s?.composerEditorCount??1,auxiliary=s?.auxiliaryEditorCount??0,requests=s?.requestEditorCount??0;return [{id:'desktop-root',passed:s?.rootViewportCount===0},{id:'unique-frame',passed:s?.frameCount===1},{id:'active-main',passed:s?.activeMainSurfaceCount===1},{id:'composer',passed:s?.composerBodyCount===1&&(s.composerEditorCount===undefined||s.composerEditorCount===1)},{id:'mode',passed:['codex','chatgpt'].includes(s?.mode)},{id:'editors',passed:composer===1&&Number.isInteger(auxiliary)&&auxiliary>=0&&auxiliary<=1&&Number.isInteger(requests)&&requests>=0&&requests<=3&&s?.editorCount===composer+auxiliary+requests}]}
 function detectLayout(s,appVersion){
  const known=SUPPORTED_VERSIONS.includes(appVersion),requiredChecks=contractChecks(s),ok=requiredChecks.every(check=>check.passed);
@@ -17,4 +52,4 @@ function detectLayout(s,appVersion){
  const regions=Object.fromEntries(['chat','sidebar','composer','titlebar','panels','overlays'].map(key=>[key,{supported:true,reason:s.regions?.[key]===0?'not-mounted':null}]));
  return {...base,kind:s.mode,selectors:desktopSelectors,regions,reason:known?'Measured authenticated desktop shell':'Structurally compatible desktop shell; version not manually validated'};
 }
-module.exports={SUPPORTED_VERSIONS,loginSelectors,desktopSelectors,MATERIAL_REGIONS,structureExpression,contractChecks,detectLayout};
+module.exports={SUPPORTED_VERSIONS,loginSelectors,desktopSelectors,MATERIAL_REGIONS,structureExpression,desktopContractExpression,contractChecks,detectLayout};

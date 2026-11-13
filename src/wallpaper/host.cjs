@@ -1,4 +1,4 @@
-const {structureExpression,detectLayout,contractChecks}=require('../adapters.cjs');
+const {structureExpression,desktopContractExpression,detectLayout,contractChecks}=require('../adapters.cjs');
 const {buildWallpaperStyles}=require('./styles.cjs');
 const OWNER='codex-wallpaper';
 function layoutError(layout){const failed=layout.requiredChecks.filter(c=>!c.passed);return Object.assign(new Error(layout.reason),{code:failed.length===1&&failed[0].id==='mode'?'HOST_SHELL_PENDING':'ADAPTER_LAYOUT_MISMATCH',stage:'probe',checks:layout.requiredChecks})}
@@ -29,17 +29,44 @@ function bindFrameMetrics(image){
   });
   image.addEventListener('error',()=>{image.dataset.cwDecoded='false'});
 }
+const dataImage=/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+function checkFrame(uri,leaseId){
+  if(typeof uri!=='string'||uri.length>16*1024*1024||!dataImage.test(uri))throw new Error('Invalid wallpaper frame');
+  if(leaseId!==null&&(typeof leaseId!=='string'||leaseId.length>128||/[\x00-\x1f]/.test(leaseId)))throw new Error('Invalid renderer lease');
+}
+// The steady-state receiver only changes src on the mounted image. Setup, ownership checks
+// that need an exact count, and decoded handoffs go through the existing paint transaction.
+function paintMountedFrame(uri,leaseId){
+  const frames=document.querySelectorAll('[data-app-shell-frame="true"]');
+  if(frames.length!==1||document.querySelectorAll('#codex-wallpaper-background').length!==1)return null;
+  const layer=document.getElementById('codex-wallpaper-layer');
+  const image=layer?.firstElementChild;
+  if(layer?.parentElement!==frames[0]||layer.dataset.owner!=='codex-wallpaper'||
+    layer.dataset.cwFallback==='true'||image?.id!=='codex-wallpaper-image'||image.dataset.cwMetricsVersion!=='1'||
+    document.getElementById('codex-wallpaper-background')?.dataset.owner!=='codex-wallpaper')return null;
+  updateFrame(image,uri,leaseId);
+  return true;
+}
+function updateFrame(image,uri,leaseId){
+  if(image.dataset.cwLeaseId!==leaseId){image.dataset.cwLeaseId=leaseId;image.dataset.cwLoads='0';image.dataset.cwLastLoadedId=''}
+  if(image.getAttribute('src')===uri)return;
+  image.dataset.cwDecoded='false';
+  image.dataset.cwFrameId=String(Number(image.dataset.cwFrameId||0)+1);
+  image.src=uri;
+}
+const mountedPaintExpression=`(()=>{const updateFrame=${updateFrame.toString()};return (${paintMountedFrame.toString()})(`;
+const paintTransactions=`const getOwned=${getOwned.toString()},setStyle=${setStyle.toString()},canShowFallback=${canShowFallback.toString()},bindFrameMetrics=${bindFrameMetrics.toString()},updateFrame=${updateFrame.toString()};`;
 class WallpaperHost {
   constructor(protocol,appVersion){this.client=protocol;this.appVersion=appVersion;}
   supportsDecodedPaint=true;
   async inspect(){return this.client.evaluate(`(()=>{const s=${structureExpression};return {...s,documentToken:String(performance.timeOrigin)}})()`)}
   async viewport(){return this.client.evaluate(`(()=>{const frames=document.querySelectorAll('[data-app-shell-frame="true"]');if(frames.length!==1)return null;const box=frames[0].getBoundingClientRect();return {cssWidth:box.width,cssHeight:box.height,dpr:devicePixelRatio,visible:document.visibilityState!=='hidden'&&box.width>0&&box.height>0,documentToken:String(performance.timeOrigin)}})()`)}
-  async synchronize(settings){
+  async synchronize(settings,{includeDiagnostics=true}={}){
     // Both modes share the same shell selectors and styles. Validate the actual
     // mode and full contract in the same task as any repairs, without caching DOM.
     const styles=buildWallpaperStyles(settings,{kind:'codex'});
     const result=await this.client.evaluate(`(()=>{
-      const structure={...${structureExpression},documentToken:String(performance.timeOrigin)};
+      const structure={...${includeDiagnostics?structureExpression:desktopContractExpression},documentToken:String(performance.timeOrigin)};
       if(!(${contractChecks.toString()})(structure).every(check=>check.passed))return {structure};
       const styles=${JSON.stringify(styles)},frame=document.querySelector('[data-app-shell-frame="true"]');
       const nodes=Object.entries(styles).map(([name,text])=>{
@@ -105,13 +132,16 @@ class WallpaperHost {
     return this.#paint(uri,{documentToken,background:styles.background,clearMaterials,existingOnly});
   }
   async paint(uri,{leaseId=null,decoded=false}={}){
+    checkFrame(uri,leaseId);
+    if(!decoded){
+      const painted=await this.client.evaluate(`${mountedPaintExpression}${JSON.stringify(uri)},${JSON.stringify(leaseId||'')})})()`);
+      if(painted===true)return true;
+    }
     return this.#paint(uri,{leaseId,decoded});
   }
   async #paint(uri,{leaseId=null,decoded=false,documentToken=null,background=null,clearMaterials=false,existingOnly=false}){
-    if(!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(uri)||uri.length>16*1024*1024)throw new Error('Invalid wallpaper frame');
-    if(leaseId!==null&&(typeof leaseId!=='string'||leaseId.length>128||/[\x00-\x1f]/.test(leaseId)))throw new Error('Invalid renderer lease');
     return this.client.evaluate(`(async()=>{
-      const getOwned=${getOwned.toString()},setStyle=${setStyle.toString()},canShowFallback=${canShowFallback.toString()},bindFrameMetrics=${bindFrameMetrics.toString()};
+      ${paintTransactions}
       const {uri,leaseId,decoded,documentToken,background,clearMaterials,existingOnly}=${JSON.stringify({uri,leaseId:leaseId||'',decoded,documentToken:documentToken||(decoded?this.documentToken:null),background,clearMaterials,existingOnly})};
       const applyFallbackStyles=background!==null;
       const getFrame=()=>{
@@ -153,8 +183,7 @@ class WallpaperHost {
       }
       if(image!==previous||!image){image??=document.createElement('img');image.id='codex-wallpaper-image';image.alt=''}
       bindFrameMetrics(image);
-      if(image.dataset.cwLeaseId!==leaseId){image.dataset.cwLeaseId=leaseId;image.dataset.cwLoads='0';image.dataset.cwLastLoadedId=''}
-      if(image.getAttribute('src')!==uri){image.dataset.cwDecoded='false';image.dataset.cwFrameId=String(Number(image.dataset.cwFrameId||0)+1);image.src=uri}
+      updateFrame(image,uri,leaseId);
       if(image!==previous){
         if(image.complete&&image.naturalWidth){image.dataset.cwDecoded='true';image.dataset.cwFrameId='1';image.dataset.cwLastLoadedId='1';image.dataset.cwLoads='1'}
         if(previous)previous.replaceWith(image);else layer.prepend(image);

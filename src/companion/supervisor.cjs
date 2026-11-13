@@ -55,7 +55,11 @@ function createSupervisor({paths,hosts,appearance,runner,mode='manager',clock={n
   else if(['HOST_LAUNCH_FAILED','HOST_IDENTITY_CHANGED','RENDERER_FAILED'].includes(code)&&!closed){clock.clearTimeout(retryTimer);retryTimer=clock.setTimeout(()=>{retryTimer=null;queue()},error.retryManaged?0:[500,1000,2000,4000,8000][retries++])}
  }
  async function reconcileInternal(){
-  if(closed)return;const view=await appearance.view();state.desired={enabled:view.settings.enabled,wallpaperEnabled:view.settings.wallpaper?.enabled!==false,sceneLive:view.settings.playback?.sceneLive!==false};
+  if(closed)return;
+  // Reconciliation uses the controller state. Library cards and presets are only needed by the sidebar.
+  const view=appearance.controller?.snapshot?appearance.controller.snapshot():await appearance.view();
+  const {settings}=view;
+  state.desired={enabled:settings.enabled,wallpaperEnabled:settings.wallpaper?.enabled!==false,sceneLive:settings.playback?.sceneLive!==false};
   if(fallbackSession&&(!state.desired.enabled||!state.desired.wallpaperEnabled)&&await runner.clearFallback?.({isCurrent:currentHost}))reportFallback(null,null);
   const checked=fingerprint;
   if(session&&session.generation!==generation)await drop({preserveFrame:true});
@@ -68,20 +72,20 @@ function createSupervisor({paths,hosts,appearance,runner,mode='manager',clock={n
     if(closed||probedFingerprint!==fingerprint||probedSession!==compatibilitySession)return;
     if(ready===true){blockedFingerprint=null;compatibilitySession=null;retries=0;publish({phase:'checking',error:null})}
    }
-   if(blockedFingerprint===fingerprint){if(!view.settings.enabled)publish({phase:'disabled'});return}
+   if(blockedFingerprint===fingerprint){if(!settings.enabled)publish({phase:'disabled'});return}
   }if(retryTimer)return;
   const host=inventory.find(h=>h.id===selected);if(!host){await drop();fail({code:'HOST_NOT_FOUND',stage:'discover'});return}
   if(!active){
    const roots=host.processes||[];
    if(host.kind!=='codex-desktop'){fail({code:'HOST_TRANSPORT_UNAVAILABLE'});return}
-   if(roots.length&&!roots.every(p=>p.managed)){publish({pendingLaunch:launchIntent==='wait'});if(view.settings.enabled||launchIntent)fail({code:'HOST_NEEDS_MANAGED_LAUNCH'});else publish({phase:'disabled',error:null});return}
-   if(!roots.length&&!launchIntent){publish({phase:view.settings.enabled?'idle':'disabled',observed:{...state.observed,applied:false,connected:false},error:null});return}
+   if(roots.length&&!roots.every(p=>p.managed)){publish({pendingLaunch:launchIntent==='wait'});if(settings.enabled||launchIntent)fail({code:'HOST_NEEDS_MANAGED_LAUNCH'});else publish({phase:'disabled',error:null});return}
+   if(!roots.length&&!launchIntent){publish({phase:settings.enabled?'idle':'disabled',observed:{...state.observed,applied:false,connected:false},error:null});return}
    endpointWaitSince??=clock.now();
    const epoch=++generation;abort=new AbortController();const signal=abort.signal;
    publish({phase:'connecting',observed:{...state.observed,generation},error:null});
    // Warm only our owned blank renderer after accepting a managed host (or an
    // explicit launch), while the full native endpoint checks run unchanged.
-   Promise.resolve().then(()=>{if(!closed&&epoch===generation&&!signal.aborted)return runner.prewarm?.(view.settings)}).catch(()=>{});
+   Promise.resolve().then(()=>{if(!closed&&epoch===generation&&!signal.aborted)return runner.prewarm?.(settings)}).catch(()=>{});
    const candidateSession=await hosts.launch(selected,{generation:epoch,signal});if(closed||epoch!==generation)return;
    if(candidateSession?.generation!==epoch||roots.length&&!roots.some(p=>p.managed&&p.pid===candidateSession.pid&&p.startTime===candidateSession.startTime)){
     throw Object.assign(new Error('Host identity changed before attachment'),{code:'HOST_IDENTITY_CHANGED'});

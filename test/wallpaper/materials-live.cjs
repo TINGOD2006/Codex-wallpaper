@@ -59,11 +59,13 @@ const fs=require('node:fs/promises'),{createRendererService}=require('../../src/
   for(let n=0;n<15;n++){oldSamples.push(await runSample(oldMaintenance));newSamples.push(await runSample(()=>measured.synchronize(s)))}
   assert.equal(oldSamples[0].calls,8);assert.equal(newSamples[0].calls,1);
   let sync=await measured.synchronize(s);assert.equal(sync.proof.imageConfirmed,true);assert.equal(sync.viewport.cssWidth,800);assert.ok(sync.metrics.loads>0);
+  const lean=await measured.synchronize(s,{includeDiagnostics:false});
+  assert.equal(Object.hasOwn(lean.structure,'buttonCount'),false);assert.deepEqual(lean.proof,sync.proof);
   assert.deepEqual(await inspect(),after);
   await client.evaluate(`document.querySelector('button[aria-label]').setAttribute('aria-label','目前模式：ChatGPT');document.getElementById('codex-wallpaper-materials').textContent='broken'`);
-  sync=await measured.synchronize(s);assert.equal(sync.structure.mode,'chatgpt');assert.equal(sync.proof.stylesConfirmed,true);assert.deepEqual(await inspect(),after);
+  sync=await measured.synchronize(s,{includeDiagnostics:false});assert.equal(sync.structure.mode,'chatgpt');assert.equal(sync.proof.stylesConfirmed,true);assert.deepEqual(await inspect(),after);
   await client.evaluate(`document.querySelector('button[aria-label]').setAttribute('aria-label','unknown');document.getElementById('codex-wallpaper-materials').textContent='sentinel'`);
-  await assert.rejects(()=>measured.synchronize(s),e=>e.code==='HOST_SHELL_PENDING');assert.equal(await client.evaluate(`document.getElementById('codex-wallpaper-materials').textContent`),'sentinel');
+  await assert.rejects(()=>measured.synchronize(s,{includeDiagnostics:false}),e=>e.code==='HOST_SHELL_PENDING');assert.equal(await client.evaluate(`document.getElementById('codex-wallpaper-materials').textContent`),'sentinel');
   await client.evaluate(`document.querySelector('button[aria-label]').setAttribute('aria-label','目前模式：Codex');document.getElementById('codex-wallpaper-materials').dataset.owner='foreign'`);
   await assert.rejects(()=>measured.synchronize(s));assert.equal(await client.evaluate(`document.getElementById('codex-wallpaper-materials').textContent`),'sentinel');
   await client.evaluate(`document.getElementById('codex-wallpaper-materials').dataset.owner='codex-wallpaper'`);
