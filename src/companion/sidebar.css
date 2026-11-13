@@ -1,3 +1,11 @@
-:root{color-scheme:dark;--app-color-background-surface:#191b20;--app-color-background-elevated-primary:#25282f;--app-color-text-foreground:#f1f3f5;--app-color-text-foreground-secondary:#b3bbc7;--app-color-text-accent:#7ba9ee;background:var(--app-color-background-surface);color:var(--app-color-text-foreground);font-family:system-ui,"Segoe UI",sans-serif}html,body{margin:0;width:100%;height:100%;overflow:hidden}#codex-wallpaper-button{display:none}#codex-wallpaper-panel{inset:0;width:100%;max-width:none;height:100%;max-height:none;border-radius:12px;box-shadow:none;z-index:1}#codex-wallpaper-panel header{padding-top:14px}#codex-wallpaper-panel .cw-body{flex:1}#sidebar-connection{display:none}#codex-wallpaper-panel .cw-host-state{padding:5px 18px 8px;font-size:11px;color:var(--app-color-text-foreground-secondary);overflow-wrap:anywhere}#codex-wallpaper-panel .cw-host-state[data-warning=true]{color:#e9bf7c}body[data-offline=true] #sidebar-connection{display:block;position:absolute;inset:0 0 auto;padding:14px;background:#5a322c;z-index:5;font-size:12px}
+:root{color-scheme:dark;--app-color-background-surface:#191b20;--app-color-background-elevated-primary:#25282f;--app-color-text-foreground:#f1f3f5;--app-color-text-foreground-secondary:#b3bbc7;--app-color-text-accent:#7ba9ee;background:var(--app-color-background-surface);color:var(--app-color-text-foreground);font-family:system-ui,"Segoe UI",sans-serif}
+html,body{margin:0;width:100%;height:100%;overflow:hidden}
+#codex-wallpaper-button{display:none}
+#codex-wallpaper-panel{inset:0;width:100%;max-width:none;height:100%;max-height:none;border-radius:12px;box-shadow:none;z-index:1}
+#sidebar-connection{display:none}
+body:not([data-offline]) #sidebar-connection{display:block;padding:16px;font-size:12px}
+#codex-wallpaper-panel .cw-host-state{margin:3px 12px 6px;padding:7px 9px;border:1px solid var(--cw-line);border-radius:8px;font-size:11px;color:var(--cw-muted);overflow-wrap:anywhere}
+#codex-wallpaper-panel .cw-host-state[data-warning=true]{color:#e9bf7c}
+body[data-offline=true] #sidebar-connection{display:block;position:absolute;inset:0 0 auto;padding:14px;background:#5a322c;z-index:5;font-size:12px}
 
 .cw-recovery-action{margin-top:8px;padding:6px 10px;border:1px solid #596574;border-radius:6px;background:#25282f;color:#f1f3f5;cursor:pointer}.cw-recovery-action:disabled{opacity:.6;cursor:default}.cw-recovery-action:focus-visible{outline:2px solid #7ba9ee;outline-offset:2px}.cw-recovery-action[hidden]{display:none}

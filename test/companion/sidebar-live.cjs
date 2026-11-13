@@ -3,6 +3,8 @@ const {SceneEngine}=require('../../src/scene-engine.cjs'),{createLibrary}=requir
 const {createAppearanceService}=require('../../src/companion/appearance-service.cjs'),{startControlServer}=require('../../src/companion/control-server.cjs'),{resolvePaths}=require('../../src/companion/paths.cjs'),{delay}=require('../../src/control.cjs');
 (async()=>{
  const paths=resolvePaths({localAppData:await fs.mkdtemp(path.join(os.tmpdir(),'cw-sidebar-'))}),store=createStore(paths.data),library=createLibrary({dataRoot:paths.data});await library.scan();
+ const thumbnailRequests=[],getThumbnail=library.thumbnail;
+ library.thumbnail=id=>{thumbnailRequests.push(id);return getThumbnail(id)};
  const appearance=await createAppearanceService({store,library,presets:createPresets({store,library,dataRoot:paths.data}),chooseFile:async()=>({cancelled:true})});
  const state={instanceId:'fixture',phase:'needs-launch',desired:{enabled:true},observed:{applied:false,appVersion:'99.1.2.3'},hosts:[],error:{code:'HOST_NEEDS_MANAGED_LAUNCH',message:'請正常退出後由管理器開啟。'}};
  const server=await startControlServer({paths,supervisor:{instanceId:'fixture',snapshot:()=>state,enableWallpaper:async()=>{await appearance.controller.patch({enabled:true,wallpaper:{enabled:true}});state.desired={enabled:true,wallpaperEnabled:true};state.observed.applied=true},waitForExitAndLaunch:async()=>{state.pendingLaunch=true},reconnect:async()=>{state.error=null;state.observed.applied=true}},appearance,protect:async()=>{}}),engine=new SceneEngine({entry:library.get('builtin:miku'),width:1280,height:720,renderFps:20,runtimeRoot:paths.runtime});
@@ -11,15 +13,42 @@ const {createAppearanceService}=require('../../src/companion/appearance-service.
   async function until(expression){for(let n=0;n<60;n++){if(await engine.client.evaluate(expression))return;await delay(100)}throw Error('Sidebar state timeout: '+expression)}
   await until(`document.querySelector('.cw-recovery-action')?.textContent==='退出後自動接回'`);
   assert.equal(await engine.client.evaluate('location.hash'),'');
+  assert.equal(await engine.client.evaluate(`document.querySelector('.cw-status').textContent`),'等待接入');
+  await engine.client.send('Emulation.setDeviceMetricsOverride',{width:420,height:720,deviceScaleFactor:1,mobile:false});
+  await until(`!!document.querySelector('.cw-card img[src]')`);
+  await engine.client.evaluate(`document.querySelector('button[data-view="list"]').click()`);
+  assert.equal(await engine.client.evaluate(`document.querySelector('.cw-grid').dataset.view`),'list');
+  assert.equal(await engine.client.evaluate(`document.querySelector('button[data-view="list"]').getAttribute('aria-pressed')`),'true');
+  assert.equal(await engine.client.evaluate(`document.querySelector('.cw-body').scrollWidth<=document.querySelector('.cw-body').clientWidth`),true);
+  await engine.client.evaluate(`document.querySelector('[data-id="builtin:miku"] .cw-pick').click()`);
+  await until(`document.querySelector('.cw-now-info strong').textContent==='初音靜態插畫'&&!!document.querySelector('.cw-now img[src]')`);
+  assert.equal(thumbnailRequests.filter(id=>id==='builtin:miku').length,1,'The selected tile and card share the same preview');
+  await engine.client.evaluate(`document.querySelector('.cw-quick-actions button').click()`);
+  await until(`document.querySelector('.cw-quick-actions button').textContent==='繼續'`);
+  assert.equal((await store.load()).playback.paused,true);
+  await engine.client.evaluate(`document.querySelector('.cw-quick-actions button').click()`);
+  await until(`document.querySelector('.cw-quick-actions button').textContent==='暫停'`);
+  assert.equal((await store.load()).playback.paused,false);
   assert.equal(await engine.client.evaluate(`!!document.querySelector('[data-setting="performance.qualityMode"]')`),false);
   await engine.client.evaluate(`document.querySelector('[data-setting="performance.powerSaving"]').click()`);
   for(let n=0;n<50&&(await store.load()).performance.powerSaving!==true;n++)await delay(100);
   assert.equal((await store.load()).performance.powerSaving,true);assert.equal((await store.load()).performance.qualityMode,'fixed');
   await engine.client.evaluate(`document.querySelector('[data-setting="performance.powerSaving"]').click()`);
   for(let n=0;n<50&&(await store.load()).performance.powerSaving!==false;n++)await delay(100);
-  const sceneDirectory=path.join(paths.data,'scene-fixture');await fs.mkdir(sceneDirectory,{recursive:true});await fs.writeFile(path.join(sceneDirectory,'project.json'),JSON.stringify({type:'scene',title:'Own static scene fixture'}));await fs.writeFile(path.join(sceneDirectory,'scene.pkg'),'fixture');await library.addRoot(sceneDirectory);const scene=library.cards(await store.load()).find(c=>c.kind==='scene');assert.ok(scene);await appearance.controller.select(scene.id);
+  const sceneDirectory=path.join(paths.data,'scene-fixture');await fs.mkdir(sceneDirectory,{recursive:true});await fs.writeFile(path.join(sceneDirectory,'project.json'),JSON.stringify({type:'scene',title:'Own static scene fixture',contentrating:'Mature'}));await fs.writeFile(path.join(sceneDirectory,'scene.pkg'),'fixture');await library.addRoot(sceneDirectory);const scene=library.cards(await store.load()).find(c=>c.kind==='scene');assert.ok(scene);
+  await until(`!!document.querySelector('[aria-label="內容分級"] option[value="mature"]')`);
+  await engine.client.evaluate(`(()=>{const filter=document.querySelector('[aria-label="內容分級"]');filter.value='mature';filter.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  assert.deepEqual(await engine.client.evaluate(`[...document.querySelectorAll('.cw-card')].map(card=>card.dataset.id)`),[scene.id]);
+  await appearance.controller.patch({playback:{playlist:['builtin:miku','missing:fixture',scene.id]}});
+  await until(`!document.querySelector('.cw-quick-actions button:last-child').disabled`);
+  await engine.client.evaluate(`document.querySelector('.cw-quick-actions button:last-child').click()`);
+  await until(`document.querySelector('.cw-now-info strong').textContent==='Own static scene fixture'`);
+  assert.equal((await store.load()).wallpaper.selectedId,scene.id);
+  await appearance.controller.patch({library:{hidden:['builtin:miku']}});
+  await until(`document.querySelector('.cw-quick-actions button:last-child').disabled`);
   await until(`document.getElementById('cw-scene-controls')?.hidden===false&&document.querySelector('[data-setting="playback.sceneLive"]')?.checked===true`);
   await engine.client.evaluate(`document.querySelector('#cw-tab-playback').click()`);
+  assert.equal(await engine.client.evaluate(`[...document.querySelectorAll('#cw-section-playback summary')].find(node=>node.textContent==='進階播放設定').parentElement.open`),false);
   await engine.client.evaluate(`document.querySelector('[data-setting="playback.sceneLive"]').click()`);
   for(let n=0;n<50&&(await store.load()).playback.sceneLive!==false;n++)await delay(100);assert.equal((await store.load()).playback.sceneLive,false);
   await engine.client.evaluate(`document.querySelector('[data-setting="playback.sceneLive"]').click()`);
@@ -41,6 +70,6 @@ const {createAppearanceService}=require('../../src/companion/appearance-service.
   await until(`document.querySelector('.cw-recovery-action')?.hidden===true`);
   assert.equal((await store.load()).enabled,true);assert.equal((await store.load()).wallpaper.enabled,true);
   await server.close();await until(`document.body.dataset.offline==='true'`);
-  console.log(JSON.stringify({pass:true,sidebarActions:true,enableBothSwitches:true,sceneSwitchAndFps:true,pendingExit:true,reconnect:true,settingsUnchanged:true,offlineDetected:true,bootstrapRemoved:true}));
+  console.log(JSON.stringify({pass:true,sidebarActions:true,nowPlaying:true,listAndRatings:true,previewReused:true,nextSkipsHidden:true,advancedCollapsed:true,enableBothSwitches:true,sceneSwitchAndFps:true,pendingExit:true,reconnect:true,settingsUnchanged:true,offlineDetected:true,bootstrapRemoved:true}));
  }finally{await server.close();await engine.close();await appearance.close();await library.close()}
 })().catch(e=>{console.error(e.stack);process.exitCode=1});
