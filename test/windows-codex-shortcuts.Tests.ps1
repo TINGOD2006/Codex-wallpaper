@@ -19,6 +19,16 @@ try{
  $stamp=(Get-Item -LiteralPath $alias).LastWriteTimeUtc
  Sync-CodexUserShortcuts @options|Out-Null
  if((Get-Item -LiteralPath $alias).LastWriteTimeUtc -ne $stamp){throw 'Unchanged shortcut rewritten'}
+ $updatedOfficial='C:\Program Files\WindowsApps\OpenAI.Codex_26.4.5.6_x64__publisher\app\ChatGPT.exe'
+ Save-FixtureLink $alias $updatedOfficial
+ Sync-CodexUserShortcuts @options|Out-Null
+ if((Get-FileHash -LiteralPath $alias).Hash -ne $sourceHash){throw 'Recreated official alias was not repaired'}
+ Save-FixtureLink $alias $updatedOfficial '--user-choice'
+ $customAliasHash=(Get-FileHash -LiteralPath $alias).Hash
+ Sync-CodexUserShortcuts @options|Out-Null
+ if((Get-FileHash -LiteralPath $alias).Hash -ne $customAliasHash){throw 'Custom official arguments overwritten'}
+ Save-FixtureLink $alias $updatedOfficial
+ Sync-CodexUserShortcuts @options|Out-Null
  $modified=Join-Path $desktop 'Codex.lnk';Save-FixtureLink $modified 'C:\UserChoice\Other.exe';$modifiedHash=(Get-FileHash -LiteralPath $modified).Hash
  Sync-CodexUserShortcuts @options|Out-Null
  if((Get-FileHash -LiteralPath $modified).Hash -ne $modifiedHash){throw 'User change overwritten'}

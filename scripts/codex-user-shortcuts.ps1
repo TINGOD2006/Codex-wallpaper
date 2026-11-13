@@ -20,7 +20,20 @@ function Sync-CodexUserShortcuts {
     $record=if(Test-Path -LiteralPath $recordPath){Get-Content -Raw -LiteralPath $recordPath|ConvertFrom-Json}else{$null}
     if($exists -and ((Get-Item -LiteralPath $link).Attributes -band [IO.FileAttributes]::ReparsePoint)){Write-Output ('Preserved linked shortcut: '+$link);continue}
     $hash=if($exists){(Get-FileHash -LiteralPath $link).Hash}else{$null}
-    if($record -and ($record.path -ne $link -or -not $exists -or $record.installedHash -ne $hash)){Write-Output ('Preserved modified shortcut: '+$link);continue}
+    if($record -and ($record.path -ne $link -or -not $exists)){Write-Output ('Preserved modified shortcut: '+$link);continue}
+    if($record -and $record.installedHash -ne $hash){
+     # A package update can recreate its ChatGPT alias. Reuse the original
+     # verified backup and repair only a direct link to the same official app.
+     $recreated=$false
+     if(-not $Restore -and $name -eq 'ChatGPT.lnk' -and $record.existed -and
+        (Test-Path -LiteralPath $backup -PathType Leaf) -and
+        -not ((Get-Item -LiteralPath $backup).Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+        (Get-FileHash -LiteralPath $backup).Hash -eq $record.originalHash){
+      $current=$shell.CreateShortcut($link)
+      $recreated=$current.TargetPath -match $officialPattern -and [string]::IsNullOrEmpty($current.Arguments)
+     }
+     if(-not $recreated){Write-Output ('Preserved modified shortcut: '+$link);continue}
+    }
     if($Restore){
      if(-not $record){continue}
      if($record.existed){
