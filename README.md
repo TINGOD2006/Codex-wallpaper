@@ -43,7 +43,7 @@ pwsh -NoProfile -File scripts/install-integrated.ps1
 
 安裝根目錄 `%USERPROFILE%\.codex-wallpaper` 中，`app` 放程式、`data` 放設定及素材、`runtime` 放暫時連線資料、`logs` 放診斷。更新不覆寫設定，原捷徑及遷移資料會備份。請勿上傳這些私人目錄。
 
-`data/boot-animation.json` 中的 `{"enabled":false}` 可停用動畫。正常播完會 Windows 最大化，保留標題列及工作列；Esc、媒體失敗及逾時不改變原視窗尺寸。
+可在 Wallpaper 側欄的「播放」頁切換「開機動畫」，設定會保存到 `data/boot-animation.json`，下次從整合捷徑冷啟動時生效。播完會在 Windows 最大化並保留標題列及工作列。Esc、媒體失敗及逾時不改變原視窗尺寸。
 
 解除安裝：
 

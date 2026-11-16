@@ -59,6 +59,14 @@ const {createAppearanceService}=require('../../src/companion/appearance-service.
   await until(`document.querySelector('.cw-quick-actions button:last-child').disabled`);
   await until(`document.getElementById('cw-scene-controls')?.hidden===false&&document.querySelector('[data-setting="playback.sceneLive"]')?.checked===true`);
   await engine.client.evaluate(`document.querySelector('#cw-tab-playback').click()`);
+  const bootSwitch='[data-setting="bootAnimation.enabled"]';
+  await until(`document.querySelector('${bootSwitch}')?.checked===true`);
+  await engine.client.evaluate(`document.querySelector('${bootSwitch}').click()`);
+  await until(`(()=>{const input=document.querySelector('${bootSwitch}');return input&&!input.disabled&&!input.checked})()`);
+  assert.equal(JSON.parse(await fs.readFile(path.join(paths.data,'boot-animation.json'),'utf8')).enabled,false);
+  await engine.client.evaluate(`document.querySelector('${bootSwitch}').click()`);
+  await until(`(()=>{const input=document.querySelector('${bootSwitch}');return input&&!input.disabled&&input.checked})()`);
+  assert.equal(JSON.parse(await fs.readFile(path.join(paths.data,'boot-animation.json'),'utf8')).enabled,true);
   assert.equal(await engine.client.evaluate(`[...document.querySelectorAll('#cw-section-playback summary')].find(node=>node.textContent==='進階播放設定').parentElement.open`),false);
   await engine.client.evaluate(`document.querySelector('[data-setting="playback.sceneLive"]').click()`);
   for(let n=0;n<50&&(await store.load()).playback.sceneLive!==false;n++)await delay(100);assert.equal((await store.load()).playback.sceneLive,false);

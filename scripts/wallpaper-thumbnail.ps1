@@ -5,8 +5,10 @@ $image=$null;$bitmap=$null;$graphics=$null
 try{
   $image=[Drawing.Image]::FromFile($ImagePath)
   if($image.Width -gt 20000 -or $image.Height -gt 20000){throw 'Preview dimensions exceed limit'}
-  $ratio=[math]::Min(1,320/[math]::Max($image.Width,$image.Height))
-  $bitmap=[Drawing.Bitmap]::new([math]::Max(1,[int]($image.Width*$ratio)),[math]::Max(1,[int]($image.Height*$ratio)))
+  $scale=[Math]::Min(1.0,320.0/[Math]::Max($image.Width,$image.Height))
+  $width=[Math]::Max(1,[int]($image.Width*$scale))
+  $height=[Math]::Max(1,[int]($image.Height*$scale))
+  $bitmap=[Drawing.Bitmap]::new($width,$height)
   $graphics=[Drawing.Graphics]::FromImage($bitmap)
   $graphics.Clear([Drawing.Color]::FromArgb(24,24,24))
   $graphics.InterpolationMode=[Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic

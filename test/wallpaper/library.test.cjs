@@ -43,6 +43,30 @@ test('thumbnail conversion is deduplicated and limited to two concurrent jobs',a
   const files=await Promise.all([0,1,2,3].map(async n=>{const p=path.join(root,n+'.png');await fs.writeFile(p,'fixture');return p}));
   await Promise.all([thumbnail(files[0]),thumbnail(files[0]),...files.slice(1).map(thumbnail)]);assert.equal(converted,4);assert.equal(peak,2);
 });
+test('legacy thumbnail cache is regenerated and a missing video cover falls back to a poster',async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'wallpaper-cover-')),dataRoot=path.join(root,'data');
+ t.after(()=>fs.rm(root,{recursive:true,force:true}));
+ const source=path.join(root,'preview.jpg');
+ await fs.writeFile(source,'cover source');
+ const stat=await fs.stat(source);
+ const key=require('node:crypto').createHash('sha256').update(source+stat.size+stat.mtimeMs).digest('hex');
+ await fs.mkdir(path.join(dataRoot,'thumbnails'),{recursive:true});
+ await fs.writeFile(path.join(dataRoot,'thumbnails',key+'.jpg'),'legacy 1x1 thumbnail');
+ const thumbnail=createThumbnailer({dataRoot,convert:(_file,out)=>fs.writeFile(out,'new thumbnail')});
+ try{assert.equal(await thumbnail(source),'data:image/jpeg;base64,'+Buffer.from('new thumbnail').toString('base64'))}finally{await thumbnail.close()}
+
+ const video=path.join(root,'media.mp4');
+ await fs.writeFile(video,'video fixture');
+ await fs.writeFile(path.join(root,'project.json'),JSON.stringify({type:'video',file:'media.mp4',preview:'preview.jpg'}));
+ const calls=[],poster='data:image/jpeg;base64,AAAA';
+ const library=createLibrary({roots:[root],dataRoot,renderPoster:async entry=>{calls.push(entry.kind);return poster}});
+ try{
+  const entries=await library.scan(),entry=entries.find(item=>item.kind==='video');
+  await fs.unlink(source);
+  assert.equal(await library.thumbnail(entry.id),poster);
+  assert.deepEqual(calls,['video']);
+ }finally{await library.close()}
+});
 test('oversized project metadata is skipped without hiding valid neighbors',async()=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'wallpaper-oversize-'));for(const name of ['good','huge']){const d=path.join(root,name);await fs.mkdir(d);await fs.writeFile(path.join(d,'scene.pkg'),'fixture');await fs.writeFile(path.join(d,'project.json'),JSON.stringify({type:'scene',title:name,padding:name==='huge'?'x'.repeat(2*1024*1024):''}))}
  const l=createLibrary({roots:[root],dataRoot:path.join(root,'data')});await l.scan();assert.ok(l.cards(defaults()).some(c=>c.title==='good'));assert.ok(!l.cards(defaults()).some(c=>c.title==='huge'));assert.ok(l.diagnostics().some(d=>d.code==='METADATA_TOO_LARGE'));await l.close();

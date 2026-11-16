@@ -29,7 +29,8 @@ function createThumbnailer({dataRoot,convert,queue=createThumbnailQueue()}){
   const pending=new Map();
   async function make(file,signal){
     const stat=await fs.stat(file);if(stat.size>8*1024*1024)return null;signal.throwIfAborted();
-    const key=createHash('sha256').update(file+stat.size+stat.mtimeMs).digest('hex'),output=path.join(dataRoot,'thumbnails',key+'.jpg');
+    // Earlier builds could cache large covers at 1x1. Regenerate them once.
+    const key=createHash('sha256').update(file+stat.size+stat.mtimeMs).digest('hex'),output=path.join(dataRoot,'thumbnails',key+'-v2.jpg');
     await fs.mkdir(path.dirname(output),{recursive:true});signal.throwIfAborted();
     try{await fs.access(output)}catch{
       signal.throwIfAborted();

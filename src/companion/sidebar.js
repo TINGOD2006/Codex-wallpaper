@@ -25,7 +25,8 @@ async function poll(){
  const reply=await request('view');
  mountWallpaperPanel({sessionId:reply.state.instanceId,panelId:crypto.randomUUID(),binding:'sidebarPanelCommand',css:'',
   fullWindowMaterials:reply.result.fullWindowMaterials,libraryView:reply.result.libraryView,
-  saveLibraryView:view=>request('sidebar.library-view',{view})
+  saveLibraryView:view=>request('sidebar.library-view',{view}),
+  saveBootAnimation:enabled=>request('sidebar.boot-animation',{enabled}).then(reply=>reply.result.bootAnimationEnabled)
  });
  window.__codexWallpaperPanel.update(reply.result);
  const panel=document.getElementById('codex-wallpaper-panel'),status=document.createElement('div');status.className='cw-host-state';status.setAttribute('role','status');

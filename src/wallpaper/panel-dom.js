@@ -1,7 +1,7 @@
 /* Only this owned UI is injected; all user supplied strings use textContent. */
 function mountWallpaperPanel(options){
  'use strict';
- const {sessionId,panelId,binding,css,fullWindowMaterials,saveLibraryView}=options;
+ const {sessionId,panelId,binding,css,fullWindowMaterials,saveLibraryView,saveBootAnimation}=options;
  const OWNER='codex-wallpaper',old=window.__codexWallpaperPanel;
  if(old?.owner===OWNER&&old.panelId===panelId&&document.getElementById('codex-wallpaper-button'))return true;
  old?.owner===OWNER&&old.dispose();
@@ -303,6 +303,25 @@ function mountWallpaperPanel(options){
  for(const [key,name]of [['surface','主底色'],['panel','面板色'],['text','文字'],['muted','次要文字'],['accent','強調色'],['selection','選取底色']])field(colors,'colors.palette.'+key,name,{type:'color'});
  const playback=sections.playback;
  heading(playback,'播放控制');
+ const bootAnimation=el('input',null,{type:'checkbox',role:'switch','aria-label':'開機動畫','data-setting':'bootAnimation.enabled'});
+ let bootAnimationEnabled=true,savingBootAnimation=false;
+ if(saveBootAnimation){
+  const label=el('label',null,{class:'cw-field',title:'下次從整合捷徑冷啟動 Codex 時生效'});
+  label.append(el('span','開機動畫'),bootAnimation);
+  playback.append(label);
+  bootAnimation.addEventListener('change',async()=>{
+   savingBootAnimation=true;
+   bootAnimation.disabled=true;
+   error.textContent='';
+   try{bootAnimationEnabled=await saveBootAnimation(bootAnimation.checked)}
+   catch{error.textContent='無法儲存開機動畫設定，請重試。'}
+   finally{
+    bootAnimation.checked=bootAnimationEnabled;
+    bootAnimation.disabled=false;
+    savingBootAnimation=false;
+   }
+  });
+ }
  field(playback,'performance.powerSaving','省電模式（靜態圖片）',{type:'checkbox'});
  field(playback,'playback.paused','暫停播放',{type:'checkbox'});
  const sceneControls=el('div',null,{id:'cw-scene-controls',class:'cw-control-group',role:'group','aria-label':'場景即時渲染控制'});playback.append(sceneControls);
@@ -365,6 +384,10 @@ function mountWallpaperPanel(options){
  }
  function update(state){
   if(closed||!state?.settings||(model&&state.revision<model.revision))return;model=state;
+  if(!savingBootAnimation&&typeof state.bootAnimationEnabled==='boolean'){
+   bootAnimationEnabled=state.bootAnimationEnabled;
+   bootAnimation.checked=bootAnimationEnabled;
+  }
   for(const [path,{input,output,type,format}]of controls){if(document.activeElement===input)continue;const v=get(path);if(type==='checkbox')input.checked=v;else input.value=String(v);if(type==='range'){paintRange(input);output.textContent=format(v)}}
   if(document.activeElement!==mask){maskOn.checked=!!state.settings.reading.maskColor;mask.value=state.settings.reading.maskColor||'#181818'}
   const p=state.playback||{},rendering=state.rendering,powerSaving=state.settings.performance.powerSaving;

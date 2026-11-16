@@ -9,6 +9,7 @@ async function identity(){if(!processIdentity)processIdentity=run(process.env.MI
 async function startControlServer({paths,supervisor,appearance,recoverEntry=async()=>{},showWindow=async()=>{},onExit=async()=>{},protect=nativeProtect}){
  await fs.mkdir(paths.runtime,{recursive:true});const [,stamp]=await Promise.all([protect(paths.runtime),identity()]);
  const preferencesFile=path.join(paths.data,'sidebar-preferences.json');
+ const bootAnimationFile=path.join(paths.data,'boot-animation.json');
  const savedPreferences=await readJson(preferencesFile).catch(()=>null);
  let libraryView=savedPreferences?.libraryView==='list'?'list':'cards',preferenceWrites=Promise.resolve();
  const token=crypto.randomBytes(32).toString('hex'),nonces=new Map(),sessions=new Map(),cache=new Map(),sequences=new Map();let address,closed=false;
@@ -16,12 +17,29 @@ async function startControlServer({paths,supervisor,appearance,recoverEntry=asyn
  const publicState=()=>({...supervisor.snapshot(),rendering:appearance.rendering?.()||null});
  async function execute(action,p){
   switch(action){
-   case 'status':case 'view':if(!exact(p,[]))throw new Error('Invalid payload');return action==='view'?{...await appearance.view(),fullWindowMaterials:FULL_WINDOW_MATERIALS,libraryView}:undefined;
+   case 'status':if(!exact(p,[]))throw new Error('Invalid payload');break;
+   case 'view':{
+    if(!exact(p,[]))throw new Error('Invalid payload');
+    const view=await appearance.view();
+    const animation=await readJson(bootAnimationFile).catch(()=>null);
+    return {...view,fullWindowMaterials:FULL_WINDOW_MATERIALS,libraryView,bootAnimationEnabled:animation?.enabled!==false};
+   }
    case 'sidebar.library-view':{
     if(!exact(p,['view'])||!['cards','list'].includes(p.view))throw new Error('Invalid library view');
     const save=preferenceWrites.then(async()=>{
      if(p.view!==libraryView){await atomicJson(preferencesFile,{libraryView:p.view});libraryView=p.view}
      return {libraryView};
+    });
+    preferenceWrites=save.catch(()=>{});
+    return save;
+   }
+   case 'sidebar.boot-animation':{
+    if(!exact(p,['enabled'])||typeof p.enabled!=='boolean')throw new Error('Invalid boot animation preference');
+    const save=preferenceWrites.then(async()=>{
+     const saved=await readJson(bootAnimationFile).catch(error=>{if(error.code!=='ENOENT'&&!(error instanceof SyntaxError))throw error;return null});
+     const preferences=saved&&typeof saved==='object'&&!Array.isArray(saved)?saved:{};
+     await atomicJson(bootAnimationFile,{...preferences,enabled:p.enabled});
+     return {bootAnimationEnabled:p.enabled};
     });
     preferenceWrites=save.catch(()=>{});
     return save;

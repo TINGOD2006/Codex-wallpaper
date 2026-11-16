@@ -8,6 +8,13 @@ if($LASTEXITCODE -ne 0){throw 'Fixture compilation failed'}
 [IO.File]::WriteAllText((Join-Path $assets 'startup.mp4'),'fixture placeholder - not executed');[IO.File]::WriteAllText((Join-Path $writerDir 'boot-status.cjs'),'process.exit(0)')
 $previous=$env:CODEX_WALLPAPER_ROOT;$env:CODEX_WALLPAPER_ROOT=$fixtureRoot
 try{
+ $preference=Join-Path $fixtureRoot 'data/boot-animation.json'
+ New-Item -ItemType Directory -Path (Split-Path $preference) -Force|Out-Null
+ [IO.File]::WriteAllText($preference,'{"enabled":false}')
+ $reason=$null
+ $disabled=Start-WallpaperBootAnimation -ProjectRoot $app -Reason ([ref]$reason)
+ if($disabled -or $reason -ne 'disabled'){throw 'Cold entry ignored the boot animation preference'}
+ [IO.File]::WriteAllText($preference,'{"enabled":true}')
  $last=Join-Path $fixtureRoot 'runtime/boot-animation/last-request.json';if(Test-Path -LiteralPath $last){@{ticks=[DateTime]::UtcNow.AddSeconds(-10).Ticks}|ConvertTo-Json|Set-Content -LiteralPath $last -Encoding utf8}
  $first=Start-WallpaperBootAnimation -ProjectRoot $app;if(-not $first.playerPid){throw 'First request was skipped'}
  $reason=$null;$second=Start-WallpaperBootAnimation -ProjectRoot $app -Reason ([ref]$reason);if($second -or $reason -ne 'already-requested'){throw 'Live player request was not deduplicated'}

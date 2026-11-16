@@ -72,11 +72,19 @@ function createLibrary({roots=[],dataRoot,runtimeRoot,renderPoster}){
     async thumbnail(id){
       if(closed)return null;
       const entry=entries.get(id);if(!entry)return null;
-      if(entry.previewPath){const checked=await real(entry.previewPath);if(!within(entry.directory,checked)||(await fs.stat(checked)).size>8*1024*1024)return null;
-        const simple=path.extname(checked).toLowerCase()==='.webp'?null:await thumbnail(checked);if(simple)return simple;
-        return poster({...entry,sourceKind:entry.kind,kind:'image',mediaPath:checked,previewOnly:true,capability:'supported'});
+      if(entry.previewPath){
+        const relative=path.relative(entry.directory,entry.previewPath);
+        const checked=await safeFile(entry.directory,relative).catch(()=>null);
+        if(checked&&(await fs.stat(checked).catch(()=>null))?.size<=8*1024*1024){
+          const simple=path.extname(checked).toLowerCase()==='.webp'?null:await thumbnail(checked);
+          if(simple)return simple;
+          const cover=await poster({...entry,sourceKind:entry.kind,kind:'image',mediaPath:checked,previewOnly:true,capability:'supported'});
+          if(cover)return cover;
+        }
       }
-      return entry.kind==='video'&&entry.capability==='supported'?poster(entry):null;
+      if(entry.kind!=='video'||entry.capability!=='supported')return null;
+      const media=await safeFile(entry.directory,path.relative(entry.directory,entry.mediaPath)).catch(()=>null);
+      return media?poster({...entry,mediaPath:media}):null;
     },
     findSource(source){return [...entries.values()].find(e=>source.kind==='scene'?e.kind==='scene'&&path.resolve(e.directory).toLowerCase()===path.resolve(source.directory).toLowerCase():e.mediaPath&&path.resolve(e.mediaPath).toLowerCase()===path.resolve(source.file).toLowerCase())?.id||null}
   };

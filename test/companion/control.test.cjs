@@ -60,3 +60,30 @@ test('sidebar view preference survives service replacement and never changes wal
   await assert.rejects(fs.access(path.join(paths.data,'user-settings.json')),{code:'ENOENT'});
  }finally{await server.close()}
 });
+
+test('sidebar boot switch persists the launcher preference without changing wallpaper settings',async()=>{
+ const paths=resolvePaths({localAppData:await fs.mkdtemp(path.join(os.tmpdir(),'cw-boot-preference-'))});
+ const file=path.join(paths.data,'boot-animation.json');
+ const supervisor={instanceId:'fixture',snapshot:()=>({instanceId:'fixture'})};
+ const {connectCompanion}=require('../../src/companion/control-client.cjs');
+ const start=()=>startControlServer({paths,supervisor,appearance:{view:async()=>({})},protect:async()=>{}});
+ let server=await start();
+ try{
+  const client=await connectCompanion({paths,verifyProcess:async()=>true});
+  try{
+   assert.equal((await client.request('view')).result.bootAnimationEnabled,true);
+   await assert.rejects(client.request('sidebar.boot-animation',{enabled:'false'}));
+   await client.request('sidebar.boot-animation',{enabled:false});
+   assert.deepEqual(JSON.parse(await fs.readFile(file,'utf8')),{enabled:false});
+   assert.equal((await client.request('view')).result.bootAnimationEnabled,false);
+  }finally{client.close()}
+  await server.close();server=await start();
+  const reopened=await connectCompanion({paths,verifyProcess:async()=>true});
+  try{
+   assert.equal((await reopened.request('view')).result.bootAnimationEnabled,false);
+   assert.equal((await reopened.request('sidebar.boot-animation',{enabled:true})).result.bootAnimationEnabled,true);
+  }finally{reopened.close()}
+  assert.deepEqual(JSON.parse(await fs.readFile(file,'utf8')),{enabled:true});
+  await assert.rejects(fs.access(path.join(paths.data,'user-settings.json')),{code:'ENOENT'});
+ }finally{await server.close()}
+});
