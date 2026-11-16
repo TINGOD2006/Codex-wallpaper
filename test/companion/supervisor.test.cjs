@@ -53,6 +53,37 @@ test('ordinary entry reports needs-launch and host exit does not create a restar
  assert.equal(supervisor.snapshot().phase,'needs-launch');assert.equal(supervisor.snapshot().observed.applied,false);
  event({type:'hosts',hosts:[{...host,processes:[]}]});await supervisor.reconcile();assert.equal(launchCount,0);assert.equal(supervisor.snapshot().phase,'idle');await supervisor.close();
 });
+
+test('a requested handoff may start Codex after normal exit exactly once',async()=>{
+ let event;
+ const attempts=[];
+ const host={id:'codex-desktop',kind:'codex-desktop',appVersion:'99.1',processes:[{pid:1,startTime:'10',managed:false}]};
+ const hosts={
+  scan:async()=>[host],
+  watch:fn=>{event=fn;return {close(){}}},
+  launch:async(id,{generation,allowStart})=>{
+   attempts.push(allowStart);
+   return {hostId:id,generation,sessionId:'new',pid:2,startTime:'20',appVersion:'99.1'};
+  },
+  close(){}
+ };
+ const runner={attach:async()=>({
+  adapter:{regions:{}},
+  observe:async()=>({connected:true,layoutPassed:true,stylesConfirmed:true,rendererHealthy:true}),
+  close:async()=>({restored:true})
+ })};
+ const supervisor=createSupervisor({hosts,runner,mode:'integrated',appearance:{view:async()=>({settings:{enabled:true}})}});
+ try{
+  await supervisor.start();
+  await supervisor.waitForExitAndLaunch();
+  assert.equal(supervisor.snapshot().pendingLaunch,true);
+  assert.deepEqual(attempts,[]);
+  event({type:'hosts',hosts:[{...host,processes:[]}]});
+  await supervisor.reconcile();
+  assert.deepEqual(attempts,[true]);
+  assert.equal(supervisor.snapshot().pendingLaunch,false);
+ }finally{await supervisor.close()}
+});
 test('an older attachment completing after an update cannot publish the old host as active',async()=>{
  let event,release,oldClosed=0,attachCount=0;
  let host={id:'codex-desktop',kind:'codex-desktop',appPath:'C:/Official/v1/ChatGPT.exe',appVersion:'1',processes:[{pid:52,startTime:'10',managed:true}]};

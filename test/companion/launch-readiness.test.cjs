@@ -26,6 +26,26 @@ test('hot shortcut does not activate or launch a second native host',async()=>{
  const actions=[],state={phase:'active',hosts:[{id:'codex-desktop'}],observed:{connected:true}};
  assert.deepEqual((await launchAndWait({request:async action=>{actions.push(action);return {state}}})).state,state);assert.deepEqual(actions,['status']);
 });
+test('shortcut queues a handoff once when the running host has no endpoint',async()=>{
+ const c=clock(),actions=[];
+ const state={phase:'needs-launch',desired:{enabled:true,wallpaperEnabled:true},
+  observed:{hostId:'codex-desktop',connected:false},error:{code:'HOST_NEEDS_MANAGED_LAUNCH'}};
+ const client={initial:{state:{phase:'connecting'}},async request(action,payload){
+  actions.push([action,payload]);
+  return {state:action==='status'?state:{...state,pendingLaunch:true}};
+ }};
+ assert.equal((await launchAndWait(client,c)).state.pendingLaunch,true);
+ assert.deepEqual(actions,[['status',{}],['wait-for-exit-and-launch',{hostId:'codex-desktop'}]]);
+});
+test('shortcut does not queue a duplicate or override disabled wallpaper',async()=>{
+ for(const [desired,pendingLaunch] of [[{enabled:true},true],[{enabled:false},false],[{enabled:true,wallpaperEnabled:false},false]]){
+  const state={phase:'needs-launch',error:{code:'HOST_NEEDS_MANAGED_LAUNCH'},desired,pendingLaunch};
+  const actions=[];
+  const client={initial:{state},async request(action){actions.push(action);return {state}}};
+  assert.equal((await launchAndWait(client,clock())).state,state);
+  assert.ok(!actions.includes('wait-for-exit-and-launch'));
+ }
+});
 test('a cold shortcut wakes passive attachment and preserves an unsupported-host result',async()=>{
  const c=clock(),actions=[];const hosts=[{id:'codex-desktop'}];
  const result=await launchAndWait({initial:{state:{phase:'idle',hosts}},request:async action=>{

@@ -6,7 +6,14 @@ function Get-CompanionPackages {param($HostId)$context.events.Add('package');@{a
 function Get-CompanionSnapshot {param($Packages)@{processes=$context.roots}}
 '@|Set-Content -LiteralPath (Join-Path $scripts 'companion-hosts.ps1') -Encoding utf8
 function Get-CimInstance {param($ClassName,$Filter)if($Filter -like 'ProcessId=*'){return $context.current};return $context.raw}
-function Start-Process {param($FilePath,$ArgumentList,$WindowStyle,[switch]$PassThru)$context.events.Add('native');[pscustomobject]@{Id=123456;StartTime=[DateTime]::UtcNow}}
+function Start-Process {
+ param($FilePath,$ArgumentList,$WindowStyle,[switch]$PassThru)
+ if($FilePath -ne 'C:\OwnedFixture\ChatGPT.exe' -or ($ArgumentList -join ',') -ne '--remote-debugging-address=127.0.0.1,--remote-debugging-port=0'){
+  throw 'Cold entry did not request the loopback endpoint on its verified host'
+ }
+ $context.events.Add('native')
+ [pscustomobject]@{Id=123456;StartTime=[DateTime]::UtcNow}
+}
 function Invoke-CodexNativeActivation {param($Package)if($Package.packageFamily -ne 'OwnedFixture_test'){throw 'Unexpected target'};$context.events.Add('activate')}
 $created=[DateTime]::UtcNow;$current=[pscustomobject]@{ProcessId=123456;CreationDate=$created;ExecutablePath='C:\OwnedFixture\ChatGPT.exe';CommandLine='ChatGPT.exe --remote-debugging-port=0'}
 $context=[pscustomobject]@{events=[Collections.Generic.List[string]]::new();roots=@();raw=@();current=$current}

@@ -32,3 +32,17 @@ test('cosmetic taskbar checks do not delay transport and are aborted on close',a
  const hosts=createWindowsHosts({paths:{runtime:'fixture'},exec:async(file,args,options)=>{calls.push(args);if(args.includes('-HostId'))return {stdout:JSON.stringify({ok:true,session:{runDirectory:'fixture/session'}})};cosmeticSignal=options.signal;await gate;return {stdout:'{}'}}});
  const session=await hosts.launch('codex-desktop');assert.equal(session.runDirectory,'fixture/session');assert.ok(calls[0].includes('-ConnectOnly'));assert.equal(calls.length,2);hosts.close();assert.equal(cosmeticSignal.aborted,true);release();
 });
+
+test('only an explicit deferred reopen may start a missing host',async()=>{
+ const calls=[];
+ const hosts=createWindowsHosts({paths:{runtime:'fixture'},exec:async(_file,args)=>{
+  calls.push(args);
+  return {stdout:'{"ok":true,"session":{}}'};
+ }});
+ try{
+  await hosts.launch('codex-desktop');
+  await hosts.launch('codex-desktop',{allowStart:true});
+  assert.ok(calls[0].includes('-ConnectOnly'));
+  assert.ok(!calls[1].includes('-ConnectOnly'));
+ }finally{hosts.close()}
+});

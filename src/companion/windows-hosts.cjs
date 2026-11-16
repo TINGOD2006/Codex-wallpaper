@@ -17,9 +17,11 @@ function createWindowsHosts({paths,pwshPath=process.env.MIKU_PWSH||'pwsh',exec=r
     mine.on('error',()=>restart(mine));mine.on('exit',()=>restart(mine));
    };start();return {close:stopWatch};
   },
-  async launch(hostId,{generation=1,signal}={}){
+  async launch(hostId,{generation=1,signal,allowStart=false}={}){
    if(hostId!=='codex-desktop')throw Object.assign(new Error('Unsupported host'),{code:'HOST_TRANSPORT_UNAVAILABLE'});signal?.throwIfAborted();
-   const result=await invoke([script('companion-launch-host.ps1'),'-HostId',hostId,'-StateRoot',path.join(paths.runtime,'hosts'),'-Generation',String(generation),'-ConnectOnly'],{signal});signal?.throwIfAborted();
+   const args=[script('companion-launch-host.ps1'),'-HostId',hostId,'-StateRoot',path.join(paths.runtime,'hosts'),'-Generation',String(generation)];
+   if(!allowStart)args.push('-ConnectOnly');
+   const result=await invoke(args,{signal});signal?.throwIfAborted();
    if(!result.ok)throw Object.assign(new Error(result.error?.message||'Host launch failed'),{code:result.error?.code||'HOST_LAUNCH_FAILED'});
    // The clicked launcher restores the native window. Cosmetic grouping has its
    // own fresh identity check and must not block connection or steal focus.

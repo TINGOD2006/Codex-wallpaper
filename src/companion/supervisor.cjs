@@ -86,7 +86,10 @@ function createSupervisor({paths,hosts,appearance,runner,mode='manager',clock={n
    // Warm only our owned blank renderer after accepting a managed host (or an
    // explicit launch), while the full native endpoint checks run unchanged.
    Promise.resolve().then(()=>{if(!closed&&epoch===generation&&!signal.aborted)return runner.prewarm?.(settings)}).catch(()=>{});
-   const candidateSession=await hosts.launch(selected,{generation:epoch,signal});if(closed||epoch!==generation)return;
+   // Only the explicit "reopen after exit" request can start a missing host.
+   // The regular integrated launcher and passive recovery only attach.
+   const allowStart=launchIntent==='wait'&&roots.length===0;
+   const candidateSession=await hosts.launch(selected,{generation:epoch,signal,allowStart});if(closed||epoch!==generation)return;
    if(candidateSession?.generation!==epoch||roots.length&&!roots.some(p=>p.managed&&p.pid===candidateSession.pid&&p.startTime===candidateSession.startTime)){
     throw Object.assign(new Error('Host identity changed before attachment'),{code:'HOST_IDENTITY_CHANGED'});
    }

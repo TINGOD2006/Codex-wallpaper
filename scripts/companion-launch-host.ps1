@@ -10,8 +10,8 @@ try{
  $package=$packages[0];$existing=@((Get-CompanionSnapshot -Packages @($package)).processes)
  if($existing.Count -gt 1){Fail-Launch 'HOST_IDENTITY_CHANGED' '有多個主程序，無法唯一確認接入目標。'}
  if($existing.Count -eq 1 -and -not $existing[0].managed){Fail-Launch 'HOST_NEEDS_MANAGED_LAUNCH' '請正常完全退出目前視窗，再由管理器開啟。'}
- # Passive reconnects must never race a normal exit and restart Codex without
- # the clicked entry (and its animation). Only the launcher owns native startup.
+ # A passive reconnect must never reopen Codex. A requested handoff may start
+ # it once the snapshot confirms that the previous host has exited.
  if(-not $existing.Count -and $ConnectOnly){Fail-Launch 'HOST_IDENTITY_CHANGED' '原版 Codex 已退出；等待使用者從原入口重新開啟。'}
  $sessionId=[guid]::NewGuid().ToString();$runDirectory=Join-Path ([IO.Path]::GetFullPath($StateRoot)) $sessionId
  New-Item -ItemType Directory -Path $runDirectory -Force|Out-Null

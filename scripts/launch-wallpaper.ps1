@@ -52,7 +52,7 @@ try {
  }
  # Wallpaper readiness must not gate the original application or open a modal
  # error dialog. The sidebar and diagnostic log retain real connection errors.
- $launchResult=if($state.error -and $state.error.code -notin @('HOST_ENDPOINT_PENDING','HOST_SHELL_PENDING','HOST_IDENTITY_CHANGED','HOST_LAUNCH_FAILED','HOST_UNRESPONSIVE')){'wallpaper-unavailable'}elseif($state.observed.applied -or $state.phase -eq 'disabled' -or $state.desired.wallpaperEnabled -eq $false){'completed'}else{'pending'}
+ $launchResult=if($state.pendingLaunch -and $state.error.code -eq 'HOST_NEEDS_MANAGED_LAUNCH'){'waiting-for-exit'}elseif($state.error -and $state.error.code -notin @('HOST_ENDPOINT_PENDING','HOST_SHELL_PENDING','HOST_IDENTITY_CHANGED','HOST_LAUNCH_FAILED','HOST_UNRESPONSIVE')){'wallpaper-unavailable'}elseif($state.observed.applied -or $state.phase -eq 'disabled' -or $state.desired.wallpaperEnabled -eq $false){'completed'}else{'pending'}
  Write-WallpaperLaunchResult $launchResult $state.error.code
  $reply
 }catch{
