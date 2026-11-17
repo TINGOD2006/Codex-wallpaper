@@ -21,6 +21,24 @@ test('discovery keeps current package metadata and launch errors retain visible 
  await assert.rejects(hosts.launch('codex-desktop',{generation:1}),{code:'HOST_NEEDS_MANAGED_LAUNCH'});
  await assert.rejects(hosts.launch('../arbitrary',{}),/host/i);hosts.close();
 });
+test('bootstrap inventory wait resolves on the first sample and cancels its fallback timer',async()=>{
+ const {EventEmitter}=require('node:events');
+ const child=new EventEmitter(),timers=new Set(),marks=[],events=[];
+ child.stdout=new EventEmitter();child.stdout.setEncoding=()=>{};child.kill=()=>{};
+ const hosts=createWindowsHosts({
+  paths:{},spawnProcess:()=>child,startupMark:mark=>marks.push(mark),
+  clock:{setTimeout(fn){timers.add(fn);return fn},clearTimeout(fn){timers.delete(fn)}}
+ });
+ try{
+  const watcher=hosts.watch(event=>events.push(event),{waitForInventory:true});
+  assert.equal(timers.size,1);
+  child.stdout.emit('data','{"type":"hosts","hosts":[]}\n');
+  await watcher.initial;
+  assert.deepEqual(events,[{type:'hosts',hosts:[]}]);
+  assert.deepEqual(marks,['hostInventoryMs']);
+  assert.equal(timers.size,0);
+ }finally{hosts.close()}
+});
 test('cancelling a connection passes cancellation to the owned launcher process',async()=>{
  const abort=new AbortController();let forwarded;
  const hosts=createWindowsHosts({paths:{runtime:'C:/fixture/runtime'},exec:async(file,args,options)=>{forwarded=options.signal;abort.abort();return {stdout:'{"ok":true,"session":{}}'}}});

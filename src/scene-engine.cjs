@@ -74,7 +74,17 @@ class SceneEngine {
   playbackOperation(work){if(this.closing)return Promise.resolve();const job=(this.playbackTail||Promise.resolve()).then(work);this.playbackTail=job.catch(()=>{});return job}
   pause(){return this.playbackOperation(async()=>{if(this.client?.connected){await this.client.evaluate('window.codexScene?.pause()');await this.stream?.stop();this.status={...this.status,state:'paused'}}})}
   resume(){return this.playbackOperation(async()=>{if(this.client?.connected){await this.client.evaluate('window.codexScene?.resume()');await this.stream?.start();this.status={...this.status,state:'ready'}}})}
-  setPlayback(playback){return this.playbackOperation(async()=>{if(this.client?.connected){await this.client.evaluate(`(()=>{codexScene.setFps(${playback.renderFps});codexScene.setVolume(${playback.muted?0:playback.volume});${playback.paused?'codexScene.pause()':'codexScene.resume()'}})()`);this.status={...this.status,state:playback.paused?'paused':'ready'};if(this.stream){await this.stream.configure(playback);if(playback.paused)await this.stream.stop();else await this.stream.start()}}})}
+  setPlayback(playback){return this.playbackOperation(async()=>{
+    if(!this.client?.connected)return;
+    const paused=playback.paused===true;
+    await this.client.evaluate(`(()=>{
+      codexScene.setFps(${playback.renderFps});
+      codexScene.setVolume(${playback.muted?0:playback.volume});
+      if(codexScene.paused!==${paused})codexScene.${paused?'pause':'resume'}();
+    })()`);
+    if(this.stream&&paused===this.stream.active){if(paused)await this.stream.stop();else await this.stream.start()}
+    this.status={...this.status,state:paused?'paused':'ready'};
+  })}
   async close(){
     if(this.closing)return this.closing;this.closing=this.closeResources();return this.closing;
   }

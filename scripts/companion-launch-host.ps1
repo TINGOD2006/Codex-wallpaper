@@ -7,7 +7,9 @@ function Fail-Launch([string]$Code,[string]$Message){throw [InvalidOperationExce
 try{
  $packages=@(Get-CompanionPackages -HostId $HostId)
  if($packages.Count -ne 1){Fail-Launch 'HOST_NOT_FOUND' '找不到唯一的官方宿主安裝。'}
- $package=$packages[0];$existing=@((Get-CompanionSnapshot -Packages @($package)).processes)
+ $package=$packages[0]
+ $snapshot=Get-CompanionSnapshot -Packages @($package)
+ $existing=@($snapshot.processes)
  if($existing.Count -gt 1){Fail-Launch 'HOST_IDENTITY_CHANGED' '有多個主程序，無法唯一確認接入目標。'}
  if($existing.Count -eq 1 -and -not $existing[0].managed){Fail-Launch 'HOST_NEEDS_MANAGED_LAUNCH' '請正常完全退出目前視窗，再由管理器開啟。'}
  # A passive reconnect must never reopen Codex. A requested handoff may start
@@ -21,12 +23,15 @@ try{
  }
  $deadline=[datetime]::UtcNow.AddSeconds(6);$verifiedRootWithoutEndpoint=$false
  for($attempt=0;$attempt -lt 24 -and [datetime]::UtcNow -lt $deadline;$attempt++){
-  $roots=@(Get-CompanionSnapshot -Packages @($package));$candidates=@(Select-CompanionLaunchCandidates -Candidates @($roots.processes) -StartedTicks $started.Ticks -ReuseExisting ([bool]$existing.Count))
-  if($candidates.Count -gt 1){Fail-Launch 'HOST_IDENTITY_CHANGED' '接入目標不唯一。'}
+  # Reuse the fresh inventory on the first attempt. The session is verified
+  # again against the actual process and listener before it is published.
+  if($attempt -gt 0 -or -not $existing.Count){$snapshot=Get-CompanionSnapshot -Packages @($package)}
+  if($snapshot.processes.Count -gt 1){Fail-Launch 'HOST_IDENTITY_CHANGED' '接入目標不唯一。'}
+  $candidates=@(Select-CompanionLaunchCandidates -Candidates @($snapshot.processes) -StartedTicks $started.Ticks -ReuseExisting ([bool]$existing.Count))
   if($candidates.Count -eq 1){
    $candidate=$candidates[0]
    $verifiedRootWithoutEndpoint=$true
-   $identity=@{sessionId=$sessionId;pid=$candidate.pid;startTime=$candidate.startTime;appPath=$package.appPath;appVersion=$package.appVersion;mode='Existing';profilePath=$null;port=0;runDirectory=$runDirectory;hostId=$HostId;generation=$Generation}
+   $identity=@{sessionId=$sessionId;pid=$candidate.pid;startTime=$candidate.startTime;appPath=$snapshot.appPath;appVersion=$snapshot.appVersion;mode='Existing';profilePath=$null;port=0;runDirectory=$runDirectory;hostId=$HostId;generation=$Generation}
    $valid=@()
    foreach($listener in @(Get-ThemeBoundEndpoints -OwningProcess $candidate.pid)){
     if($listener.LocalAddress -ne '127.0.0.1'){continue}

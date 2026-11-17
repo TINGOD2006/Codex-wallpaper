@@ -1,5 +1,6 @@
 const http=require('node:http'),fs=require('node:fs/promises'),path=require('node:path'),{createReadStream}=require('node:fs'),{randomUUID}=require('node:crypto');
 const {atomicJson}=require('../config.cjs'),{fencedFile}=require('../scene-server.cjs'),{inspectEntry}=require('./source-fingerprint.cjs'),{renderError,checkAbort}=require('./errors.cjs'),{parseRange}=require('./resource-http.cjs');
+const {MAX_RENDER_WIDTH,MAX_RENDER_HEIGHT}=require('./viewport.cjs');
 const projectRoot=path.resolve(__dirname,'../..');
 const assets={
  'index.html':['src/scene-renderer/index.html','text/html'],
@@ -54,7 +55,7 @@ function createAssetOrigin({paths}){
   const source=await inspectEntry(entry,{signal}),id=randomUUID(),assetBase=origin+'/'+id+'/',sourceKey='codex:'+entry.id+':'+entryFingerprint;
   const leaseId=identity.leaseId||id,mediaName=entry.kind==='scene'?'scene.pkg':'media'+path.extname(source.mediaPath).toLowerCase();
   const config={leaseId,sourceKey,assetBase,entryFingerprint,identity:{managerInstance:identity.managerInstance,hostGeneration:identity.hostGeneration,rendererGeneration:identity.rendererGeneration},playback:{width:playback.width||1920,height:playback.height||1080,qualityMode:['low','balanced'].includes(playback.qualityMode)?playback.qualityMode:'fixed',renderFps:playback.renderFps||30,muted:playback.muted!==false,volume:playback.volume||0},cachePolicy:structuredClone(cachePolicy)};
-  for(const [key,min,max]of [['width',1,1920],['height',1,1080],['renderFps',15,60]])if(!Number.isInteger(config.playback[key])||config.playback[key]<min||config.playback[key]>max)throw new Error('Invalid render bootstrap');
+  for(const [key,min,max]of [['width',1,MAX_RENDER_WIDTH],['height',1,MAX_RENDER_HEIGHT],['renderFps',15,60]])if(!Number.isInteger(config.playback[key])||config.playback[key]<min||config.playback[key]>max)throw new Error('Invalid render bootstrap');
   if(!Number.isFinite(config.playback.volume)||config.playback.volume<0||config.playback.volume>1)throw new Error('Invalid render volume');
   checkAbort(signal);leases.set(id,{...source,entry,mediaName,config,streams:new Set()});
   return {sourceKey,assetBase,rendererUrl:assetBase,leaseId,revoke(){const lease=leases.get(id);if(!lease)return;leases.delete(id);for(const stream of lease.streams)stream.destroy()}};

@@ -47,7 +47,9 @@ test('one verified host can show its own cached image through failed attachment 
    return shell;
   }}};
  };
- const runner=createRuntimeRunner({paths:{data},store,library:{get:()=>null},connect,watchWindow:()=>({stableVisible:true,close(){}}),async createRuntime(options){
+ let finishLibrary;
+ const libraryReady=new Promise(resolve=>finishLibrary=resolve);
+ const runner=createRuntimeRunner({paths:{data},store,library:{get:()=>null},libraryReady,initialSettings:settings,connect,watchWindow:()=>({stableVisible:true,close(){}}),async createRuntime(options){
   renderCount++;assert.equal(options.services.startupPlaceholder.uri,cached);
   assert.equal(image,cached);image='live';
   const controller={settings,playback:{state:'playing'},active:{status:{state:'ready'}},snapshot:()=>({})};
@@ -69,7 +71,11 @@ test('one verified host can show its own cached image through failed attachment 
   assert.equal(supervisor.snapshot().error.code,'HOST_ENDPOINT_PENDING');assert.equal(supervisor.snapshot().fallback.source,'cache');assert.equal(image,cached);assert.equal(open,false);
   transportReady=true;await supervisor.setEnabled(false);
   assert.equal(image,null);assert.equal(supervisor.snapshot().fallback,null);assert.equal(clears,1);
-  shell=ready;settings.enabled=true;await supervisor.reconnect();
+  shell=ready;settings.enabled=true;
+  const reconnecting=supervisor.reconnect();
+  while(showCount<2)await new Promise(setImmediate);
+  assert.equal(image,cached);assert.equal(renderCount,0);
+  finishLibrary();await reconnecting;
   assert.equal(image,'live');assert.equal(supervisor.snapshot().observed.applied,true);assert.equal(supervisor.snapshot().fallback,null);assert.equal(clears,1);assert.equal(renderCount,1);
- }finally{await supervisor.close()}
+ }finally{finishLibrary();await supervisor.close()}
 });

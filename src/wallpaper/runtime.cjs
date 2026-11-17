@@ -19,11 +19,15 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
    return {id,roots:migratedRoots};
   }});
  }catch(e){if(!services?.library)await library.close();throw e}
- await ensureSettingsV2(dataRoot);
+ if(!services)await ensureSettingsV2(dataRoot);
  const {usesStill,resolveSceneStill}=require('./scene-still.cjs');
  let startupImage=services?.startupImage;
  const takeStartupImage=()=>{const pending=startupImage;startupImage=null;return pending};
  const controller=new WallpaperController({store,library,host,prepareRenderer:async(entry,playback,options)=>{
+  if(services?.startupScene){
+   const staged=await services.startupScene.take(entry,playback,options);
+   if(staged)return staged;
+  }
   const still=usesStill(entry,playback)?await resolveSceneStill({entry,dataRoot,preferredFrame:options.stillFrame,preloaded:await takeStartupImage(),validate:uri=>{assertResponsive();return host.validateImage(uri)},signal:options.signal}):undefined;
   return services?.rendererService?services.rendererService.prepare(entry,playback,{...options,still,hostGeneration:identity.generation}):prepareRenderer(entry,playback,{...options,still,runtimeRoot});
  },windowVisible,hostResponsive}),presets=services?.presets||createPresets({dataRoot,store,library}),panel=mountPanel?new Panel(client,{sessionId:identity.sessionId,appVersion:identity.appVersion}):null;
@@ -32,6 +36,16 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
  const measureViewport=()=>{if(!host.viewport||!hostResponsive())return Promise.resolve();if(viewportJob)return viewportJob;const job=host.viewport().then(value=>controller.setViewport(value));viewportJob=job;job.then(()=>{if(viewportJob===job)viewportJob=null},()=>{if(viewportJob===job)viewportJob=null});return job};
  const resized=event=>{if(event.method==='Page.frameResized'&&(!windowVisible||windowVisible()))measureViewport().catch(()=>{})};
  let confirmation=null,confirmedAt=0,lastPreviewWrite=0,previewWrite;
+ let dynamicMarked=false;
+ const noteDynamicFrame=()=>{
+  const active=controller.active;
+  if(dynamicMarked||!services?.startupMark||!active||active.status.still||active.invalid||
+    controller.paintedRenderer!==active||!controller.paintedFrame)return;
+  const kind=library.get(controller.settings.wallpaper.selectedId)?.kind;
+  if(kind!=='scene'&&kind!=='video')return;
+  dynamicMarked=true;
+  services.startupMark('firstDynamicMs');
+ };
  const previewCache=path.join(dataRoot,'last-wallpaper-frame.json');
  const saveCurrentFrame=()=>{
   if(!services||controller.closed||!controller.settings.enabled||!controller.active||controller.active.status.still||controller.paintedRenderer!==controller.active||!controller.paintedFrame||controller.paintedFrame.length>=8*1024*1024||previewWrite||Date.now()-lastPreviewWrite<=10000)return previewWrite;
@@ -58,7 +72,11 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
     }
    }catch{/* Optional cached image never substitutes for live-renderer validation. */}
   }
-  assertResponsive();client.on?.('notification',resized);await controller.start({placeholder});controller.initialRequest?.then(saveCurrentFrame);assertResponsive();if(services?.appearance)await services.appearance.attach(controller,identity.generation);
+  if(placeholder)services?.startupMark?.('firstPreviewMs',placeholder.source);
+  assertResponsive();client.on?.('notification',resized);await controller.start({placeholder});
+  if(controller.initialRequest)controller.initialRequest.then(()=>{void services?.startupScene?.cancel();noteDynamicFrame();saveCurrentFrame()});
+  else{void services?.startupScene?.cancel();noteDynamicFrame()}
+  assertResponsive();if(services?.appearance)await services.appearance.attach(controller,identity.generation);
   if(panel){const handler=services?.appearance?{dispatch:command=>services.appearance.dispatch(command),close(){}}:createCommandHandler({sessionId:identity.sessionId,panelId:panel.panelId,controller,library,presets,chooseFile:options=>chooseFile({...options,ownerPid:identity.pid})});await panel.mount(handler);await panel.update(await view(),library.cards(controller.settings),await presets.list())}assertResponsive();if(host.confirmApplied){confirmation=await host.confirmApplied(controller.settings);confirmedAt=Date.now()}
  }catch(e){client.off?.('notification',resized);await panel?.unmount();await controller.close({preserveFrame:!!services?.startupPlaceholder&&controller.settings.enabled&&controller.settings.wallpaper.enabled});if(services?.appearance)await services.appearance.detach(identity.generation);if(!services?.library)await library.close();throw e}
  return {
@@ -71,7 +89,7 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
     sample=await controller.refreshHost();
     if(!sample)return confirmation;
     const current=detectLayout(sample.structure,identity.appVersion);layout.kind=current.kind;
-    controller.setViewport(sample.viewport);
+    if(!windowVisible||windowVisible())controller.setViewport(sample.viewport);
    }else{
     const current=detectLayout(await host.inspect(),identity.appVersion);if(!['codex','chatgpt'].includes(current.kind))throw Object.assign(new Error(current.reason),{code:'UNSUPPORTED_LAYOUT'});layout.kind=current.kind;
     await measureViewport();
@@ -79,7 +97,7 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
    }
    if(services?.rendererService){const metrics=sample?sample.metrics:host.imageMetrics?await host.imageMetrics():null;services.rendererService.observeReceiver({...metrics,playing:!!(!controller.active?.status.still&&controller.settings.enabled&&controller.settings.wallpaper.enabled&&!controller.settings.playback.paused&&!controller.outputSuspended())});await services.rendererService.refresh()}
    if(panel&&!await panel.update(await view(),library.cards(controller.settings),await presets.list()))throw new Error('Wallpaper panel needs remount');
-   saveCurrentFrame();
+   noteDynamicFrame();saveCurrentFrame();
    if(sample){confirmation=sample.proof;confirmedAt=Date.now()}
    else if(host.confirmApplied){confirmation=await host.confirmApplied(controller.settings);confirmedAt=Date.now()}
    return confirmation;

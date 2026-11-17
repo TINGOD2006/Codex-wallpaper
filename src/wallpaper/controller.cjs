@@ -1,6 +1,6 @@
 const {defaults,mergeSettings,validateSettings}=require('./schema.cjs');
 const {delay}=require('../control.cjs');
-const {validateViewport,resolveRenderSize}=require('../renderer/viewport.cjs');
+const {validateViewport,resolvePlayback}=require('../renderer/viewport.cjs');
 const {usesStill}=require('./scene-still.cjs');
 function hostUnresponsive(){return Object.assign(new Error('Codex 暫時沒有回應，請等視窗恢復後再調整桌布。'),{code:'HOST_UNRESPONSIVE'})}
 class WallpaperController {
@@ -33,7 +33,7 @@ class WallpaperController {
     this.pendingUserRequests++;this.renderEpoch++;if(this.resizeJob){this.resizeAbort?.abort();this.resizePending=true}
     const job=this.requestSettings(value,options).finally(()=>{this.pendingUserRequests--;if(!this.pendingUserRequests&&this.resizePending)queueMicrotask(()=>this.flushViewport().catch(()=>{}))});this.userJobs.add(job);job.then(()=>this.userJobs.delete(job),()=>this.userJobs.delete(job));return job;
   }
-  renderPlayback(settings){const size=resolveRenderSize({playback:settings.playback,performance:{...settings.performance,qualityMode:'fixed'},viewport:this.latestViewport});return {size,playback:{...settings.playback,powerSaving:settings.performance.powerSaving,width:size.width,height:size.height,qualityMode:'fixed',captureQuality:92,renderFps:settings.playback.renderFps,displayFps:settings.playback.displayFps}}}
+  renderPlayback(settings){return resolvePlayback(settings,this.latestViewport)}
   rendererKey(entry,settings,playback){return entry?entry.id+':'+playback.width+'x'+playback.height+':'+JSON.stringify(settings.performance)+':'+(entry.kind==='scene'?settings.playback.sceneLive:'media'):null}
   async requestSettings(value,{persist=true,forceReload=false,explicitRetry=false}={}){
     if(this.closed)throw new Error('Wallpaper controller is closed');
@@ -62,7 +62,7 @@ class WallpaperController {
           if(!next.enabled)await this.host.restoreAll();else await this.host.apply(next);
           current();
           if(wants){
-            await candidate.setPlayback(output.playback);current();
+            await candidate.setPlayback({...output.playback,paused:next.playback.paused||this.outputSuspended(next)});current();
             if(!await this.paintConfirmed(frame,candidate))throw new Error('Wallpaper candidate was not decoded in the host');
             current();
             if(created)await candidate.promote?.();
@@ -75,7 +75,8 @@ class WallpaperController {
         }
         if(created||previous.playback.renderFps!==next.playback.renderFps||previous.playback.displayFps!==next.playback.displayFps||previous.playback.paused!==next.playback.paused){this.samples=[];this.nextDisplayAt=0}
         this.settings=next;if(this.failure)this.error=null;this.failure=null;if(previous.wallpaper.selectedId!==next.wallpaper.selectedId)this.lastSwitch=Date.now();
-        this.playback={state:wants?(candidate.status.still?'static':next.playback.paused?'paused':'playing'):'off',staticSource:candidate?.status.staticSource||null,selectedId:next.wallpaper.selectedId,pendingId:null};
+        const suspended=!!(wants&&this.outputSuspended(next));
+        this.playback={state:wants?(candidate.status.still?'static':next.playback.paused||suspended?'paused':'playing'):'off',suspended,staticSource:candidate?.status.staticSource||null,selectedId:next.wallpaper.selectedId,pendingId:null};
         if(created&&old&&old!==candidate)await old.close();
         if(persist)await this.persist();else this.dirty=true;return this.snapshot();
       });
@@ -145,9 +146,10 @@ class WallpaperController {
     if(idle){
       if(this.samples?.length)this.samples.length=0;
       this.nextDisplayAt=0;
+      this.rotationPausedAt=wanted?(this.rotationPausedAt??now):null;
       if(!this.idleSince)this.idleSince=now;
       const renderer=this.active,revision=this.revision;
-      const status=renderer?.status,release=!!renderer&&(!status.still||!wanted)&&now-this.idleSince>=60000;
+      const status=renderer?.status,release=!!renderer&&!wanted&&now-this.idleSince>=60000;
       const state=wanted?(status?.still?'static':'paused'):'off',suspended=this.outputSuspended(s);
       if(!release&&(!renderer||status.state==='paused')&&this.playback.state===state&&this.playback.suspended===suspended)return;
       await this.commit(async()=>{
@@ -157,6 +159,10 @@ class WallpaperController {
         if(release){await renderer.close();this.active=null;this.activeKey=null;this.activeRequestKey=null}
         if(this.playback.state!=='error')this.playback={...this.playback,state,suspended:this.outputSuspended(s)};
       });return;
+    }
+    if(this.rotationPausedAt!=null){
+      this.lastSwitch+=Math.max(0,now-Math.max(this.rotationPausedAt,this.lastSwitch));
+      this.rotationPausedAt=null;
     }
     this.idleSince=0;
     if(this.retryInitialRenderer){this.retryInitialRenderer=false;if(this.active?.status.preview){await this.request(s);return}}

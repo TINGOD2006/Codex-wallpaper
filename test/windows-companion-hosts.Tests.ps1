@@ -19,4 +19,26 @@ $focused=@(Get-CompanionPackages -HostId 'codex-desktop')
 if($focused.Count -ne 1 -or $focused[0].id -ne 'codex-desktop' -or $script:packageRequests.Count -ne 1 -or $script:packageRequests[0] -ne 'OpenAI.Codex'){throw 'Codex entry scanned unrelated packages or lost official metadata'}
 $script:packageRequests.Clear();$all=@(Get-CompanionPackages)
 if($all.Count -ne 2 -or $script:packageRequests.Count -ne 2){throw 'General discovery lost its other supported package'}
-Write-Output 'PASS: versioned paths, normal launch and process creation identity'
+
+$family='OpenAI.Codex_2p2nqsd0c76g0'
+$oldPath=Join-Path $env:ProgramFiles 'WindowsApps/OpenAI.Codex_26.1106.6628.0_x64__2p2nqsd0c76g0/app/ChatGPT.exe'
+$registeredPath=Join-Path $env:ProgramFiles 'WindowsApps/OpenAI.Codex_26.1111.2228.0_x64__2p2nqsd0c76g0/app/ChatGPT.exe'
+$registered=@{id='codex-desktop';packageFamily=$family;appVersion='26.1111.2228.0';appPath=$registeredPath}
+$survivingRoot=$after.PSObject.Copy()
+$survivingRoot.ExecutablePath=$oldPath
+$wrongPublisher=$survivingRoot.PSObject.Copy()
+$wrongPublisher.ExecutablePath=$oldPath.Replace('2p2nqsd0c76g0','badpublisher')
+$copyOutsideStore=$survivingRoot.PSObject.Copy()
+$copyOutsideStore.ExecutablePath=Join-Path $fixture (Split-Path $oldPath -Leaf)
+$child=$survivingRoot.PSObject.Copy()
+$child.CommandLine+=' --type=renderer'
+$script:updatedWindowsProcesses=@($survivingRoot,$wrongPublisher,$copyOutsideStore,$child)
+function Get-CimInstance {param($ClassName,$Filter)$script:updatedWindowsProcesses}
+$resolved=Get-CompanionSnapshot -Packages @($registered)
+if($resolved.appVersion -ne '26.1106.6628.0' -or $resolved.appPath -ne $oldPath -or
+   $resolved.processes.Count -ne 1 -or $resolved.processes[0].pid -ne $survivingRoot.ProcessId -or
+   $registered.appPath -ne $registeredPath){throw 'Package refresh did not preserve the actual old process identity'}
+$script:updatedWindowsProcesses=@()
+$empty=Get-CompanionSnapshot -Packages @($registered)
+if($empty.appPath -ne $registeredPath -or $empty.processes.Count){throw 'Fresh launch did not retain the current registration'}
+Write-Output 'PASS: running official MSIX survives registration update, foreign paths rejected, next cold launch uses current version'

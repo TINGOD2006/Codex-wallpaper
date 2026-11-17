@@ -20,7 +20,7 @@ const {resolvePaths}=require('../../src/companion/paths.cjs'),{startControlServe
   await delay(3400);assert.ok(Date.parse((await status()).observedAt)>Date.parse(initial.observedAt),'Unchanged ready status must still receive fresh timestamps');
   const repairs=(await status()).presentation.repairs;await send(commands,'drop-layer');await until(async()=>{const s=await status();return s.state==='ready'&&s.presentation.repairs>repairs&&s.presentation.topMost&&s.presentation.hitConfirmed},'automatic recovery after native topmost loss');
   await send(commands,'open');await until(async()=>{const s=await status();return s.initialized&&s.sidebarVisible},'sidebar initialized',35000);await delay(1600);
-  const first=await inspect();assert.deepEqual(first.tabs,['桌布庫','畫面','材質','播放','預設']);assert.equal(first.hidden,false);assert.equal(first.overflow,false);assert.ok(Math.abs(first.width-420)<=2,'Sidebar must retain original CSS width at native DPI');assert.match(first.hostStatus,/Fixture/);
+  const first=await inspect();assert.deepEqual(first.tabs,['桌布庫','畫面','材質','播放','方案']);assert.equal(first.hidden,false);assert.equal(first.overflow,false);assert.ok(Math.abs(first.width-420)<=2,'Sidebar must retain original CSS width at native DPI');assert.match(first.hostStatus,/Fixture/);
   const launchId=randomUUID(),bootRoot=path.join(paths.runtime,'boot-animation'),bootState=path.join(bootRoot,launchId+'.json'),requestFile=path.join(bootRoot,'last-request.json');await fs.mkdir(bootRoot,{recursive:true});
   await atomicJson(bootState,{LaunchId:launchId,HostPid:0,HostStartTime:'',HostPath:'',Ready:false,Failed:false});
   await atomicJson(requestFile,{launchId,ticks:(BigInt(Date.now())*10000n+621355968000000000n).toString()});

@@ -42,5 +42,9 @@ test('background reconciliation leaves library and preset reads to the appearanc
   assert.deepEqual({cards,presets},{cards:0,presets:0});
   assert.equal((await appearance.view()).settings.enabled,false);
   assert.deepEqual({cards,presets},{cards:1,presets:1});
+  const reply=await appearance.dispatch({sessionId:'m',panelId:'p',seq:1,action:'settings.patch',payload:{patch:{reading:{offsetX:-80}}}});
+  assert.equal(reply.ok,true);
+  assert.equal(reply.state.settings.reading.offsetX,-80);
+  assert.deepEqual({cards,presets},{cards:2,presets:2});
  }finally{await supervisor.close();await appearance.close()}
 });

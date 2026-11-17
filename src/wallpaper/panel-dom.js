@@ -6,7 +6,7 @@ function mountWallpaperPanel(options){
  if(old?.owner===OWNER&&old.panelId===panelId&&document.getElementById('codex-wallpaper-button'))return true;
  old?.owner===OWNER&&old.dispose();
  for(const id of ['codex-wallpaper-panel','codex-wallpaper-button','codex-wallpaper-panel-style']){const node=document.getElementById(id);if(node&&node.dataset.owner!==OWNER)throw new Error('Wallpaper panel owner mismatch');node?.remove()}
- let seq=0,model=null,hostState=null,closed=false,open=false,patch={},needsSave=false,previewTimer,saveTimer,tab='library',cardsKey='',presetsKey='',limit=60;
+ let seq=0,model=null,hostState=null,closed=false,open=false,patch={},needsSave=false,previewTimer,saveTimer,tab='library',cardsKey='',limit=60;
  const pending=new Map(),controls=new Map(),scrollPositions=new Map();
  function el(tag,text,attrs={}){const node=document.createElement(tag);if(text!==null&&text!==undefined)node.textContent=text;for(const [k,v]of Object.entries(attrs))node.setAttribute(k,String(v));return node}
  function button(text,action,parent){const b=el('button',text,{type:'button'});b.addEventListener('click',action);parent?.append(b);return b}
@@ -25,7 +25,7 @@ function mountWallpaperPanel(options){
  pause.disabled=next.disabled=true;nowPlaying.append(quickActions);panel.append(nowPlaying);
  const master=el('div',null,{class:'cw-master'}),error=el('div','',{class:'cw-error',role:'alert'});panel.append(master,error);
  const tabs=el('nav',null,{role:'tablist','aria-label':'Wallpaper 分頁'}),body=el('div',null,{class:'cw-body'});panel.append(tabs,body);
- const sections={};for(const [key,name]of [['library','桌布庫'],['reading','畫面'],['materials','材質'],['playback','播放'],['presets','預設']]){
+ const sections={};for(const [key,name]of [['library','桌布庫'],['reading','畫面'],['materials','材質'],['playback','播放'],['presets','方案']]){
   const b=button(name,()=>activate(key),tabs);b.id='cw-tab-'+key;b.setAttribute('role','tab');b.setAttribute('aria-controls','cw-section-'+key);b.addEventListener('keydown',e=>{const keys=Object.keys(sections);if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const at=keys.indexOf(tab),next=e.key==='Home'?0:e.key==='End'?keys.length-1:(at+(e.key==='ArrowRight'?1:-1)+keys.length)%keys.length;activate(keys[next]);tabs.children[next].focus()}});
   const s=el('section',null,{id:'cw-section-'+key,role:'tabpanel','aria-labelledby':b.id});sections[key]=s;body.append(s);
  }
@@ -36,6 +36,7 @@ function mountWallpaperPanel(options){
   tab=key;
   for(const [k,s]of Object.entries(sections)){s.hidden=k!==key;const b=document.getElementById('cw-tab-'+k);b.setAttribute('aria-selected',String(k===key));b.tabIndex=k===key?0:-1}
   if(key==='library')renderCards();
+  if(key==='presets')renderPresets();
   if(changed)body.scrollTop=scrollPositions.get(key)||0;
   pumpThumbnails();
  }
@@ -341,15 +342,159 @@ function mountWallpaperPanel(options){
  const advanced=disclosure(playback,'進階播放設定').content;
  field(advanced,'playback.pauseWhenHidden','隱藏／最小化時暫停',{type:'checkbox'});
  field(advanced,'performance.rendererMode','渲染方式',{type:'select',options:[['auto','自動（優先共用）'],['pool','共用渲染'],['isolated','獨立渲染']]});
- field(advanced,'performance.resolutionMode','輸出尺寸',{type:'select',options:[['window','跟隨視窗'],['manual','手動尺寸']]});
- for(const [key,name,min,max,format]of [['renderFps','引擎 FPS',15,60,String],['displayFps','背景更新 FPS',1,60,String],['width','渲染寬度',320,1920,pixels],['height','渲染高度',240,1080,pixels]])field(advanced,'playback.'+key,name,{min,max,step:1,format});
+ const outputSizes = [
+  ['360P',640,360], ['480P',854,480], ['720P',1280,720],
+  ['1080P',1920,1080], ['2K',2560,1440], ['4K',3840,2160],
+ ];
+ const outputMenu = el('select',null,{'aria-label':'輸出尺寸','data-setting':'performance.resolutionMode'});
+ outputMenu.append(el('option','跟隨視窗',{value:'window'}));
+ for(const [label,width,height] of outputSizes) {
+  outputMenu.append(el('option',label+' · '+width+' × '+height,{value:label}));
+ }
+ const legacyOutput = el('option','',{value:'legacy'});
+ const outputField = el('label',null,{class:'cw-field'});
+ outputField.append(el('span','輸出尺寸'),outputMenu);
+ advanced.append(outputField);
+ function renderOutputSize(settings) {
+  if(outputMenu.disabled)return;
+  const {width,height}=settings.playback;
+  const named=outputSizes.find(([,w,h])=>width===w&&height===h);
+  const value=settings.performance.resolutionMode==='window'?'window':named?.[0]||'legacy';
+  if(value==='legacy'){
+   legacyOutput.textContent='原有尺寸 · '+width+' × '+height;
+   if(!legacyOutput.parentElement)outputMenu.append(legacyOutput);
+  }else legacyOutput.remove();
+  outputMenu.value=value;
+ }
+ outputMenu.addEventListener('change',async()=>{
+  if(!model||outputMenu.disabled)return;
+  const named=outputSizes.find(([label])=>label===outputMenu.value);
+  const patch=named
+   ?{performance:{resolutionMode:'manual'},playback:{width:named[1],height:named[2]}}
+   :{performance:{resolutionMode:outputMenu.value==='window'?'window':'manual'}};
+  try{await runQuick(outputMenu,'settings.patch',{patch})}
+  finally{renderOutputSize(model.settings)}
+ });
+ for(const [key,name,min,max] of [['renderFps','引擎 FPS',15,60],['displayFps','背景更新 FPS',1,60]])field(advanced,'playback.'+key,name,{min,max,step:1});
  field(advanced,'performance.cacheEnabled','使用貼圖快取',{type:'checkbox'});
  const rendererStatus=el('p','等待渲染狀態',{class:'cw-muted'}),cacheStatus=el('p','',{class:'cw-muted'}),cacheClear=button('清理貼圖快取',()=>send('renderer.cache.clear'),advanced);advanced.append(rendererStatus,cacheStatus);
  button('重設播放',()=>send('reset.section',{section:'playback'}),advanced);
- const preset=sections.presets;heading(preset,'預設方案');const presetSelect=el('select',null,{'aria-label':'選擇預設'}),presetName=el('input',null,{type:'text',maxlength:64,placeholder:'預設名稱','aria-label':'預設名稱'});preset.append(presetSelect,presetName);const pa=el('div',null,{class:'cw-tools'});preset.append(pa);
- button('套用',()=>send('presets.apply',{id:presetSelect.value}),pa);button('另存目前設定',()=>send('presets.save',{name:presetName.value}),pa);const rename=button('改名',()=>send('presets.rename',{id:presetSelect.value,name:presetName.value}),pa),remove=button('刪除',()=>send('presets.delete',{id:presetSelect.value}),pa);button('匯入 JSON',()=>send('presets.import'),pa);button('匯出 JSON',()=>send('presets.export',{id:presetSelect.value}),pa);
- function presetButtons(){const builtin=presetSelect.value.startsWith('builtin:');rename.disabled=builtin;remove.disabled=builtin}presetSelect.addEventListener('change',presetButtons);
- heading(preset,'還原');preset.append(el('p','還原原版會暫停全部客製化，保留桌布來源、收藏及使用者預設。',{class:'cw-muted'}));button('還原原版外觀',()=>send('reset.all'),preset);
+ const presetSection = sections.presets;
+ const presetTools = el('div', null, {class:'cw-preset-tools'});
+ const presetSave = el('form', null, {class:'cw-preset-save'});
+ const presetName = el('input', null, {type:'text', maxlength:64, placeholder:'方案名稱', 'aria-label':'方案名稱'});
+ const savePreset = el('button', '另存目前設定', {type:'submit'});
+ presetSave.append(presetName, savePreset);
+ presetSave.addEventListener('submit', async event => {
+  event.preventDefault();
+  const name = presetName.value;
+  const result = await runQuick(savePreset, 'presets.save', {name});
+  if (result?.ok && presetName.value === name) presetName.value = '';
+ });
+ presetTools.append(presetSave);
+ button('匯入 JSON', event => runQuick(event.currentTarget, 'presets.import'), presetTools);
+ const presetList = el('ul', null, {class:'cw-preset-list', 'aria-label':'所有方案'});
+ const presetEmpty = el('p', '目前沒有方案', {class:'cw-empty'});
+ presetSection.append(presetTools, presetList, presetEmpty);
+ heading(presetSection, '還原');
+ presetSection.append(el('p', '還原原版會暫停客製化，保留桌布來源、收藏與方案。', {class:'cw-muted'}));
+ button('還原原版外觀', () => send('reset.all'), presetSection);
+
+ let presetsKey = '', appliedPreset, presetEditor;
+ function editPreset(scheme, trigger, operation) {
+  presetEditor?.remove();
+  const form = el('form', null, {class:'cw-preset-editor', 'data-preset-editor':scheme.id});
+  const deleting = operation === 'delete';
+  const name = deleting ? null : el('input', null, {type:'text', maxlength:64, value:scheme.name, 'aria-label':'新方案名稱'});
+  form.append(name || el('p', '刪除「' + scheme.name + '」？'));
+  const actions = el('div', null, {class:'cw-preset-actions'});
+  const confirm = el('button', deleting ? '確認刪除' : '儲存名稱', {type:'submit'});
+  if (deleting) confirm.className = 'cw-danger';
+  function finish() {
+   if (presetEditor && presetEditor !== form) return;
+   form.remove();
+   presetEditor = null;
+   if (open && tab === 'presets') {
+    const row = [...presetList.children].find(item => item.dataset.presetId === scheme.id);
+    (row?.querySelector('[data-preset-action="' + operation + '"]') || presetName).focus();
+   }
+  }
+  const cancel = button('取消', finish, actions);
+  actions.append(confirm);
+  form.append(actions);
+  form.addEventListener('keydown', event => {
+   if (event.key !== 'Escape') return;
+   event.preventDefault();
+   event.stopPropagation();
+   if (!confirm.disabled) finish();
+  });
+  form.addEventListener('submit', async event => {
+   event.preventDefault();
+   if (confirm.disabled) return;
+   const payload = name ? {id:scheme.id, name:name.value} : {id:scheme.id};
+   cancel.disabled = true;
+   try {
+    const result = await runQuick(confirm, 'presets.' + operation, payload);
+    if (result?.ok) finish();
+   } finally {
+    cancel.disabled = false;
+   }
+  });
+  presetEditor = form;
+  trigger.closest('li').append(form);
+  (name || cancel).focus();
+  name?.select();
+ }
+
+ function presetRow(scheme) {
+  const row = el('li', null, {class:'cw-preset-row', 'data-preset-id':scheme.id});
+  const label = el('div', null, {class:'cw-preset-label'});
+  label.append(el('strong', scheme.name), el('small', '最近套用', {class:'cw-preset-active', hidden:''}));
+  if (scheme.builtin) label.append(el('small', '內建'));
+  if (scheme.missing) label.append(el('small', '桌布遺失'));
+  const actions = el('div', null, {class:'cw-preset-actions'});
+  const apply = button('套用', event => runQuick(event.currentTarget, 'presets.apply', {id:scheme.id}), actions);
+  apply.dataset.presetAction = 'apply';
+  if (!scheme.builtin) {
+   const rename = button('改名', event => editPreset(scheme, event.currentTarget, 'rename'), actions);
+   rename.dataset.presetAction = 'rename';
+  }
+  button('匯出 JSON', event => runQuick(event.currentTarget, 'presets.export', {id:scheme.id}), actions);
+  const remove = button('刪除', event => editPreset(scheme, event.currentTarget, 'delete'), actions);
+  remove.dataset.presetAction = 'delete';
+  remove.setAttribute('aria-label', '刪除 ' + scheme.name);
+  row.append(label, actions);
+  return row;
+ }
+
+ function renderPresets() {
+  if (!model || tab !== 'presets') return;
+  const schemes = model.presets || [];
+  const active = get('presets.activeId');
+  const key = JSON.stringify(schemes);
+  if (key === presetsKey && active === appliedPreset) return;
+  if (key !== presetsKey) {
+   const focusedEditor = presetEditor?.contains(document.activeElement) ? document.activeElement : null;
+   const rows = document.createDocumentFragment();
+   for (const scheme of schemes) {
+    const row = presetRow(scheme);
+    if (presetEditor?.dataset.presetEditor === scheme.id) row.append(presetEditor);
+    rows.append(row);
+   }
+   presetList.replaceChildren(rows);
+   if (!presetEditor?.isConnected) presetEditor = null;
+   if (focusedEditor?.isConnected) focusedEditor.focus({preventScroll:true});
+   presetList.hidden = schemes.length === 0;
+   presetEmpty.hidden = schemes.length !== 0;
+   presetsKey = key;
+  }
+  for (const row of presetList.children) {
+   const applied = row.dataset.presetId === active;
+   row.dataset.applied = String(applied);
+   row.querySelector('.cw-preset-active').hidden = !applied;
+  }
+  appliedPreset = active;
+ }
  function renderNow(){
   if(!model)return;
   const settings=model.settings,p=model.playback||{},selectedId=settings.wallpaper.selectedId;
@@ -406,11 +551,11 @@ function mountWallpaperPanel(options){
   controls.get('playback.renderFps').input.closest('label').hidden=scene;
   sceneHint.textContent=p.state==='static'?({captured:'顯示最後一幀',cache:'顯示已儲存的靜態畫面',preview:'顯示桌布預覽圖',empty:'沒有可用的靜態圖片，顯示原生底色'}[p.staticSource]||'顯示靜態畫面'):powerSaving?'省電模式已關閉即時渲染':'';
   sceneHint.hidden=!sceneHint.textContent;
-  for(const key of ['width','height']){const input=controls.get('playback.'+key).input;input.disabled=state.settings.performance?.resolutionMode==='window';input.title=input.disabled?'切換手動尺寸後可調整':''}
+  renderOutputSize(state.settings);
   controls.get('performance.rendererMode').input.disabled=rendering?.controlsAvailable!==true;controls.get('performance.cacheEnabled').input.disabled=rendering?.controlsAvailable!==true;cacheClear.disabled=rendering?.controlsAvailable!==true;
   const backend={pool:'共用渲染',isolated:'獨立渲染',image:'靜態圖片'},output=rendering?.outputSize,parts=[backend[rendering?.backend]||'等待渲染'];if(output)parts.push(`目前輸出 ${output.width} × ${output.height}`);if(rendering?.renderSize?.limited)parts.push('已達尺寸上限');for(const [key,label]of [['renderFps','引擎'],['captureFps','擷取'],['decodedFps','畫面']])if(Number.isFinite(rendering?.[key]))parts.push(`${label} ${rendering[key]} FPS`);if(rendering?.fallbackReason)parts.push('共用渲染暫不可用，已使用獨立渲染');if(rendering?.recovery?.blocked)parts.push('自動恢復已停止，請按重新連線重試');else if(rendering?.healthy===false)parts.push('渲染器失聯，正在確認');rendererStatus.textContent=parts.join(' · ');
   const cached=rendering?.cache,reasons={CACHE_DISABLED:'已關閉',CACHE_UNVERIFIED:'等待快取驗證',CACHE_VERIFYING:'正在驗證',CACHE_UNAVAILABLE:'快取暫不可用',CACHE_PRESSURE:'快取額度已滿',CACHE_NOT_APPLICABLE:'目前來源不使用貼圖快取',CACHE_RELOAD_REQUIRED:'下次載入時套用快取'};cacheStatus.textContent=cached?`${cached.effectiveCacheEnabled?'快取已啟用':reasons[cached.reason]||'快取未啟用'}${Number.isFinite(cached.usedBytes)&&Number.isFinite(cached.limitBytes)?` · ${(cached.usedBytes/1048576).toFixed(1)} / ${(cached.limitBytes/1048576).toFixed(0)} MiB`:''}${Number.isFinite(cached.readHits)?` · 儲存命中 ${cached.readHits} 次`:''}${Number.isFinite(rendering?.bake?.hits)?` · 本次載入命中 ${rendering.bake.hits}／未命中 ${rendering.bake.misses}`:''}`:'快取服務尚未連接';
-  launcher.dataset.enabled=String(state.settings.enabled);renderNow();renderCards();const key=JSON.stringify(state.presets);if(key!==presetsKey){presetsKey=key;const chosen=presetSelect.value;presetSelect.replaceChildren();for(const p of state.presets||[])presetSelect.append(el('option',p.name+(p.missing?'（桌布遺失）':''),{value:p.id}));if([...presetSelect.options].some(o=>o.value===chosen))presetSelect.value=chosen;presetButtons()}
+  launcher.dataset.enabled=String(state.settings.enabled);renderNow();renderCards();renderPresets();
  }
  function receive(reply){if(closed||reply.sessionId!==sessionId||reply.panelId!==panelId)return;const request=pending.get(reply.seq);if(!request)return;clearTimeout(request.timer);pending.delete(reply.seq);if(!request.quiet){if(reply.state)update(reply.state);if(!reply.ok)error.textContent=reply.error||'操作失敗';else if(reply.cancelled)status.textContent='已取消'}request.resolve(reply)}
  document.addEventListener('visibilitychange',pumpThumbnails);

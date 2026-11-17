@@ -5,9 +5,10 @@ $taskbarIdentityPath=$IdentityPath
 $identity=Get-Content -LiteralPath $taskbarIdentityPath -Raw|ConvertFrom-Json
 if($identity.mode -ne 'Existing'){throw 'Only the verified original host is supported'}
 Confirm-ThemeSession $identity -RequirePort
-$package=Get-AppxPackage -Name OpenAI.Codex
-if(@($package).Count -ne 1 -or [IO.Path]::GetFullPath((Join-Path $package.InstallLocation 'app/ChatGPT.exe')) -ne [IO.Path]::GetFullPath($identity.appPath)){throw 'Official package identity mismatch'}
-$appId=$package.PackageFamilyName+'!App'
+. (Join-Path $PSScriptRoot 'companion-hosts.ps1')
+$packages=@(Get-CompanionPackages -HostId 'codex-desktop')
+if($packages.Count -ne 1 -or -not (Get-CompanionProcessVersion -Package $packages[0] -AppPath $identity.appPath)){throw 'Official package identity mismatch'}
+$appId=$packages[0].packageFamily+'!App'
 . (Join-Path $PSScriptRoot 'taskbar-properties.ps1')
 . (Join-Path $PSScriptRoot 'wallpaper-entry-config.ps1')
 $config=Get-WallpaperEntryConfig

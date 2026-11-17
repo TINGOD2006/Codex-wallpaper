@@ -1,11 +1,34 @@
 param([ValidateSet('Scan','Watch')][string]$Operation='Scan',[string]$RuntimeRoot)
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+. (Join-Path $PSScriptRoot 'codex-entry-hint.ps1')
+
+function Get-CompanionProcessVersion {
+ param($Package,[string]$AppPath)
+ if(-not $AppPath){return}
+ if($AppPath -eq $Package.appPath){return $Package.appVersion}
+ # A Store update can register a new path while the old executable is still
+ # mapped. Require the same official Codex family and a protected versioned
+ # WindowsApps path for both executables. The process path comes from CIM.
+ if($Package.id -eq 'codex-desktop' -and $Package.packageFamily -eq 'OpenAI.Codex_2p2nqsd0c76g0' -and $Package.appVersion -and
+    (Get-CodexHintVersion $Package.appPath) -eq $Package.appVersion){
+  return Get-CodexHintVersion $AppPath
+ }
+}
+
 function Find-CompanionHostCandidates {
  param($Package,[object[]]$Processes)
  foreach($candidate in $Processes){
-  if($candidate.ExecutablePath -ne $Package.appPath -or -not $candidate.CommandLine -or $candidate.CommandLine -match '--type=' -or $candidate.CommandLine -match '--user-data-dir='){continue}
-  @{pid=[int]$candidate.ProcessId;startTime=$candidate.CreationDate.ToUniversalTime().Ticks.ToString();managed=$candidate.CommandLine.Contains('--remote-debugging-port=0')}
+  if(-not $candidate.CommandLine -or $candidate.CommandLine -match '--type=|--user-data-dir='){continue}
+  $version=Get-CompanionProcessVersion -Package $Package -AppPath $candidate.ExecutablePath
+  if(-not $version){continue}
+  @{
+   pid=[int]$candidate.ProcessId
+   startTime=$candidate.CreationDate.ToUniversalTime().Ticks.ToString()
+   managed=$candidate.CommandLine.Contains('--remote-debugging-port=0')
+   appPath=$candidate.ExecutablePath
+   appVersion=$version
+  }
  }
 }
 function Get-CompanionPackages {
@@ -25,21 +48,38 @@ function Select-CompanionLaunchCandidates {
 }
 function Select-CompanionRootCandidates {
  param([object[]]$Candidates,[long]$NowTicks=[DateTime]::UtcNow.Ticks,[scriptblock]$HasWindow)
- # MSIX activation briefly runs an unwindowed forwarding process. It is not a
- # second UI host while one managed root still exists. A real second window or
- # a persistent process must remain visible to the ambiguity checks.
- if(@($Candidates|Where-Object managed).Count -ne 1 -or $Candidates.Count -lt 2){return $Candidates}
+ if($Candidates.Count -lt 2){return $Candidates}
+ $managed=@($Candidates|Where-Object managed)
+ if(-not $managed.Count){return $Candidates}
  if(-not $HasWindow){. (Join-Path $PSScriptRoot 'window-activation.ps1');$HasWindow={param($ProcessId)try{[CodexWindowActivation]::Find($ProcessId) -ne [IntPtr]::Zero}catch{$false}}}
+ $primary=$managed[0]
+ if($managed.Count -gt 1){
+  # Native activation forwards the endpoint options too. Keep the established
+  # window while a newer, unwindowed process has time to forward and exit.
+  $windowed=@($managed|Where-Object {& $HasWindow $_.pid})
+  if($windowed.Count -ne 1){return $Candidates}
+  $primary=$windowed[0]
+ }
  foreach($candidate in $Candidates){
   $age=$NowTicks-[long]$candidate.startTime
-  if(-not $candidate.managed -and $age -ge 0 -and $age -lt [TimeSpan]::FromSeconds(5).Ticks -and -not (& $HasWindow $candidate.pid)){continue}
+  if($candidate.pid -ne $primary.pid -and $age -ge 0 -and $age -lt [TimeSpan]::FromSeconds(5).Ticks -and
+     (-not $candidate.managed -or [long]$candidate.startTime -gt [long]$primary.startTime) -and -not (& $HasWindow $candidate.pid)){continue}
   $candidate
  }
 }
 function Get-CompanionSnapshot {
  param([object[]]$Packages)
  $processes=@(Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe'")
- foreach($package in $Packages){$result=$package.Clone();$result.processes=@(Select-CompanionRootCandidates -Candidates @(Find-CompanionHostCandidates -Package $package -Processes $processes));$result}
+ foreach($package in $Packages){
+  $result=$package.Clone()
+  $roots=@(Select-CompanionRootCandidates -Candidates @(Find-CompanionHostCandidates -Package $package -Processes $processes))
+  if($roots.Count -eq 1){
+   $result.appPath=$roots[0].appPath
+   $result.appVersion=$roots[0].appVersion
+  }
+  $result.processes=$roots
+  $result
+ }
 }
 if($MyInvocation.InvocationName -ne '.'){
  if($Operation -eq 'Watch'){
@@ -48,7 +88,6 @@ if($MyInvocation.InvocationName -ne '.'){
    $installRoot=Get-CompanionInstallRoot
    if([IO.Path]::GetFullPath((Split-Path $PSScriptRoot)) -eq (Join-Path $installRoot 'app')){$RuntimeRoot=Join-Path $installRoot 'runtime'}
   }
-  if($RuntimeRoot){. (Join-Path $PSScriptRoot 'codex-entry-hint.ps1')}
  }
  $lastHintKey=''
  $packages=@(Get-CompanionPackages);$checked=[datetime]::UtcNow;$lastProcessCount=0

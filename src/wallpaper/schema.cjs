@@ -1,5 +1,6 @@
 const template=require('../../wallpaper.defaults.json');
-const ranges={opacity:[0,1],brightness:[.25,1.75],contrast:[.5,1.5],saturation:[0,2],blur:[0,24],scrim:[0,1],x:[0,100],y:[0,100],offsetX:[-2000,2000],offsetY:[-2000,2000],scale:[.5,3],alpha:[0,1],border:[0,.4],volume:[0,1],renderFps:[15,60],displayFps:[1,60],width:[320,1920],height:[240,1080],rotationSeconds:[30,86400]};
+const {MAX_RENDER_WIDTH,MAX_RENDER_HEIGHT}=require('../renderer/viewport.cjs');
+const ranges={opacity:[0,1],brightness:[.25,1.75],contrast:[.5,1.5],saturation:[0,2],blur:[0,24],scrim:[0,1],x:[0,100],y:[0,100],offsetX:[-2000,2000],offsetY:[-2000,2000],scale:[.5,3],alpha:[0,1],border:[0,.4],volume:[0,1],renderFps:[15,60],displayFps:[1,60],width:[320,MAX_RENDER_WIDTH],height:[240,MAX_RENDER_HEIGHT],rotationSeconds:[30,86400]};
 const integers=new Set(['renderFps','displayFps','width','height','rotationSeconds']);
 const plain=v=>v!==null&&typeof v==='object'&&!Array.isArray(v)&&Object.getPrototypeOf(v)===Object.prototype;
 const enums={fit:['cover','contain','stretch'],rendererMode:['auto','pool','isolated'],resolutionMode:['window','manual'],qualityMode:['fixed','balanced','low']};

@@ -135,16 +135,23 @@ function createSupervisor({paths,hosts,appearance,runner,mode='manager',clock={n
   updateEntry(entry){if(!['starting','ready','hidden','unsupported','error','off'].includes(entry.state))return;const next={state:entry.state,error:entry.error==='CAPTION_BOUNDS_UNAVAILABLE'||entry.error==='RUNTIME_MISSING'?entry.error:null};if(JSON.stringify(state.entry)!==JSON.stringify(next))publish({entry:next})},
   async start(){
    publish({phase:'connecting'});
-   let list;try{list=await hosts.scan()}catch{if(!closed)fail({code:'HOST_NOT_FOUND',stage:'discover'})}
-   if(closed)return snapshot();
-   if(list)accept(list);
+   let receivedInventory=false;
    watcher=hosts.watch(event=>{
     if(closed)return;
-    if(event.type==='hosts'){accept(event.hosts);queue()}
+    if(event.type==='hosts'){receivedInventory=true;accept(event.hosts);queue()}
     else if(!active&&!session&&!inventory.some(h=>h.processes?.length))fail({code:event.code||'HOST_NOT_FOUND',stage:'discover'});
-   });
+   },{waitForInventory:true});
+   if(watcher?.initial)await watcher.initial;
+   if(closed)return snapshot();
+   // The watcher's first inventory is authoritative. Scan separately only
+   // when an older host adapter has no watcher proof or the worker timed out.
+   if(!receivedInventory)try{
+    const list=await hosts.scan();
+    if(!closed&&!receivedInventory){accept(list);receivedInventory=true}
+   }catch{if(!closed&&!receivedInventory)fail({code:'HOST_NOT_FOUND',stage:'discover'})}
+   if(closed)return snapshot();
    interval=clock.setInterval(()=>queue(),2000);
-   if(list)await queue();return snapshot();
+   if(receivedInventory)await queue();return snapshot();
   },
   reportError:fail,
   reconcile:queue,

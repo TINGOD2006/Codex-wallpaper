@@ -8,16 +8,24 @@ const {createCaptionWorker}=require('./caption-worker.cjs');
 const {createAttachedLifetime}=require('./attached-lifetime.cjs');
 async function runCompanion({paths=resolvePaths(),legacyRoot,headless=false,integrated=false}={}){
  const started=performance.now(),startup={schemaVersion:1,at:new Date().toISOString(),stages:{}};let timingJob=Promise.resolve();
- const mark=stage=>{if(Object.hasOwn(startup.stages,stage))return;startup.stages[stage]=Math.round(performance.now()-started);const value=structuredClone(startup);timingJob=timingJob.then(()=>require('../config.cjs').atomicJson(path.join(paths.logs,'startup-timing.json'),value)).catch(()=>{})};
+ const mark=(stage,source)=>{
+  if(Object.hasOwn(startup.stages,stage))return;
+  startup.stages[stage]=Math.round(performance.now()-started);
+  if(stage==='firstPreviewMs'&&['cache','preview','captured'].includes(source))startup.previewSource=source;
+  const value=structuredClone(startup);
+  timingJob=timingJob.then(()=>require('../config.cjs').atomicJson(path.join(paths.logs,'startup-timing.json'),value)).catch(()=>{});
+ };
  for(const folder of [paths.root,paths.runtime,paths.logs])await fs.mkdir(folder,{recursive:true});
  await migrateData({legacyRoot,paths});await ensureSettingsV2(paths.data);const store=createStore(paths.data),saved=await store.load();
  mark('settingsReadyMs');
- const rendererService=createRendererService({paths});await rendererService.configure(saved.performance);
- const library=createLibrary({roots:[...await discoverSteamRoots(),...saved.library.roots],dataRoot:paths.data,runtimeRoot:paths.runtime,renderPoster:(entry,options)=>rendererService.poster(entry,options)});await library.scan();
- mark('libraryReadyMs');
+ const rendererService=createRendererService({paths,startupMark:mark});
+ const library=createLibrary({roots:[...saved.library.roots],discoverRoots:discoverSteamRoots,dataRoot:paths.data,runtimeRoot:paths.runtime,renderPoster:(entry,options)=>rendererService.poster(entry,options)});
+ const libraryReady=library.scan().then(()=>mark('libraryReadyMs'));
+ libraryReady.catch(()=>{});
+ await rendererService.configure(saved.performance);
  const presets=createPresets({dataRoot:paths.data,store,library}),appearance=await createAppearanceService({store,library,presets,rendererService,chooseFile:options=>chooseFile(options)});
- const hosts=createWindowsHosts({paths}),runner=createRuntimeRunner({paths,store,library,presets,rendererService}),supervisor=createSupervisor({paths,hosts,appearance,runner,mode:integrated?'integrated':'manager'});let control,tray,captionWorker,captionLog,stopping=false,stopJob,lifetime,unsubscribeLifetime;
- let unsubscribeStartup=supervisor.subscribe(state=>{if(state.observed.connected)mark('nativeConnectedMs');if(state.observed.applied)mark('firstAppliedMs');if(state.entry?.state==='ready')mark('entryReadyMs');if(startup.stages.firstAppliedMs!==undefined&&startup.stages.entryReadyMs!==undefined){unsubscribeStartup?.();unsubscribeStartup=null}});
+ const hosts=createWindowsHosts({paths,startupMark:mark}),runner=createRuntimeRunner({paths,store,library,libraryReady,initialSettings:saved,presets,rendererService,startupMark:mark}),supervisor=createSupervisor({paths,hosts,appearance,runner,mode:integrated?'integrated':'manager'});let control,tray,captionWorker,captionLog,stopping=false,stopJob,lifetime,unsubscribeLifetime;
+ let unsubscribeStartup=supervisor.subscribe(state=>{if(state.fallback?.source||state.playback?.preview)mark('firstPreviewMs',state.fallback?.source||state.playback?.staticSource);if(state.observed.connected)mark('nativeConnectedMs');if(state.observed.applied)mark('firstAppliedMs');if(state.entry?.state==='ready')mark('entryReadyMs');if(startup.stages.firstAppliedMs!==undefined&&startup.stages.entryReadyMs!==undefined){unsubscribeStartup?.();unsubscribeStartup=null}});
  const edgeCandidates=[path.join(process.env['ProgramFiles(x86)']||'C:/Program Files (x86)','Microsoft/Edge/Application/msedge.exe'),path.join(process.env.ProgramFiles||'C:/Program Files','Microsoft/Edge/Application/msedge.exe')];let edgePath;
  for(const candidate of edgeCandidates)try{await fs.access(candidate);edgePath=candidate;break}catch{}
  const windowAction=(action,url)=>run(process.env.MIKU_PWSH||'pwsh',['-NoProfile','-File',path.resolve(__dirname,'../../scripts/companion-window.ps1'),'-Action',action,'-RuntimeRoot',paths.runtime,'-EdgePath',edgePath,...(url?['-Url',url]:[])],{windowsHide:true,timeout:15000});

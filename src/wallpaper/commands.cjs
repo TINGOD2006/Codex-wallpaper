@@ -3,9 +3,12 @@ const plain=v=>v!==null&&typeof v==='object'&&!Array.isArray(v)&&Object.getProto
 function exact(value,required,optional=[]){if(!plain(value)||required.some(k=>!Object.hasOwn(value,k))||Object.keys(value).some(k=>![...required,...optional].includes(k)))throw new Error('無效的操作欄位')}
 function id(value){if(typeof value!=='string'||!value||value.length>256||/[\x00-\x1f]/.test(value))throw new Error('無效的識別碼');return value}
 function isRootContext(context,frame){return frame?.url==='app://-/index.html'&&context?.origin===frame.securityOrigin&&context.auxData?.isDefault===true&&context.auxData.frameId===frame.id}
-function createCommandHandler({sessionId,panelId,controller,library,presets,chooseFile,clearCache}){
+function createCommandHandler({sessionId,panelId,controller,library,presets,chooseFile,clearCache,readState}){
  let last=0,closed=false,settingsIntent=0;const cache=new Map();
- const state=async()=>({...controller.snapshot(),cards:library.cards(controller.snapshot().settings),presets:await presets.list()});
+ const state=readState||(async()=>{
+  const schemes=await presets.list(),snapshot=controller.snapshot();
+  return {...snapshot,cards:library.cards(snapshot.settings),presets:schemes};
+ });
  async function execute(action,p,sequence){
   const markSettings=()=>{settingsIntent=Math.max(settingsIntent,sequence)};
   switch(action){

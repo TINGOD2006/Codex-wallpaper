@@ -12,7 +12,7 @@ async function createAppearanceService({store,library,presets,chooseFile,rendere
  });
  proxy.clearCache=()=>serial(async()=>{if(!rendererService)throw new Error('快取服務尚未連接');return rendererService.clearCache()});
  const rendering=settings=>{if(!rendererService)return null;const source=rendererService.snapshot();return sanitizeRendering({...source,controlsAvailable:true,renderSize:active?.renderSize,cache:{...source.cache,requestedCacheEnabled:(settings||proxy.snapshot().settings).performance.cacheEnabled}})};
- async function view(){const snapshot=proxy.snapshot(),data={...snapshot,cards:library.cards(snapshot.settings),presets:await presets.list(),rendering:rendering(snapshot.settings)};delete data.revision;const key=JSON.stringify(data);if(key!==lastView){lastView=key;viewRevision++}return {...data,revision:viewRevision}}
+ async function view(){const schemes=await presets.list(),snapshot=proxy.snapshot(),data={...snapshot,cards:library.cards(snapshot.settings),presets:schemes,rendering:rendering(snapshot.settings)};delete data.revision;const key=JSON.stringify(data);if(key!==lastView){lastView=key;viewRevision++}return {...data,revision:viewRevision}}
  return {
   library,presets,controller:proxy,rendering,
   attach(controller,epoch){return serial(async()=>{if(epoch<generation)return false;const desired=stored.snapshot().settings;await rendererService?.configure(desired.performance);if(JSON.stringify(controller.snapshot().settings)!==JSON.stringify(desired))await controller.request(desired);active=controller;generation=epoch;return true})},
@@ -20,8 +20,8 @@ async function createAppearanceService({store,library,presets,chooseFile,rendere
   async dispatch(command){
    if(closed)throw new Error('Appearance service closed');
    if(typeof command?.sessionId!=='string'||typeof command?.panelId!=='string'||command.sessionId.length>128||command.panelId.length>128)throw new Error('Invalid panel identity');
-   const key=command.sessionId+':'+command.panelId;if(!handlers.has(key)){if(handlers.size>=32)throw new Error('Too many panel clients');handlers.set(key,createCommandHandler({sessionId:command.sessionId,panelId:command.panelId,controller:proxy,library,presets,chooseFile,clearCache:()=>proxy.clearCache()}))}
-   const reply=await handlers.get(key).dispatch(command);if(reply.state)reply.state=await view();return reply;
+   const key=command.sessionId+':'+command.panelId;if(!handlers.has(key)){if(handlers.size>=32)throw new Error('Too many panel clients');handlers.set(key,createCommandHandler({sessionId:command.sessionId,panelId:command.panelId,controller:proxy,library,presets,chooseFile,clearCache:()=>proxy.clearCache(),readState:view}))}
+   return handlers.get(key).dispatch(command);
   },
   view,
   async close(){for(const handler of handlers.values())handler.close();handlers.clear();await tail;closed=true;await stored.close()}

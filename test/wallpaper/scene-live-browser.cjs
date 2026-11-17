@@ -16,7 +16,20 @@ const {SceneEngine}=require('../../src/scene-engine.cjs'),{createLibrary,discove
   // Validate the neutral transparent fallback is decodable as well.
   const neutral=await require('../../src/wallpaper/scene-still.cjs').resolveSceneStill({entry:{id:'missing'},dataRoot:paths.data});await runtime.host.validateImage(neutral.uri);
   await runtime.controller.patch({playback:{sceneLive:true,renderFps:15,displayFps:15}});
-  const rates=[];for(const fps of [15,30,60]){await runtime.controller.patch({playback:{renderFps:fps,displayFps:fps}});await delay(1500);await runtime.refresh();await delay(1100);await runtime.refresh();const observed=service.snapshot();assert.ok(observed.renderFps>0);assert.equal(runtime.controller.settings.playback.renderFps,fps);assert.equal(observed.outputSize.width,640);assert.equal(observed.quality.jpeg,92);rates.push({requested:fps,render:observed.renderFps,capture:observed.captureFps,decoded:observed.decodedFps})}
+  const initialLease=runtime.controller.active,rates=[];
+  for(const fps of [15,30,60]){
+   await runtime.controller.patch({playback:{renderFps:fps,displayFps:fps}});await delay(1500);await runtime.refresh();await delay(1100);await runtime.refresh();
+   const observed=service.snapshot();
+   assert.equal(runtime.controller.active,initialLease);assert.ok(observed.renderFps>0);
+   assert.equal(runtime.controller.settings.playback.renderFps,fps);assert.deepEqual(observed.outputSize,{width:640,height:360});
+   assert.equal(observed.quality.jpeg,92);
+   rates.push({requested:fps,render:observed.renderFps,capture:observed.captureFps,decoded:observed.decodedFps})
+  }
+  await runtime.controller.patch({playback:{width:3840,height:2160,renderFps:15,displayFps:15}});
+  const ultra=await runtime.host.imageMetrics();
+  assert.deepEqual(ultra.outputSize,{width:3840,height:2160});
+  assert.equal(await client.evaluate(`getComputedStyle(document.getElementById('codex-wallpaper-image')).filter`),'none');
+  await runtime.controller.patch({playback:{width:640,height:360}});
   await service.configure({...runtime.controller.settings.performance,powerSaving:true});await runtime.controller.patch({performance:{powerSaving:true}});
   assert.equal(runtime.controller.settings.playback.sceneLive,true);assert.equal(runtime.controller.playback.state,'static');assert.equal(service.snapshot().pool.contentLeases,0);assert.equal(service.snapshot().backend,'image');assert.equal(service.snapshot().renderFps,0);
   const savedFrame=await runtime.host.imageMetrics();await delay(1500);await runtime.refresh();assert.equal((await runtime.host.imageMetrics()).loads,savedFrame.loads);
@@ -33,6 +46,6 @@ const {SceneEngine}=require('../../src/scene-engine.cjs'),{createLibrary,discove
   assert.equal(runtime.controller.playback.preview,true);assert.equal(runtime.controller.playback.state,'loading');assert.equal(runtime.status().observedApplied,true);assert.equal(service.snapshot().pool.contentLeases,0);assert.equal((await runtime.refresh()).imageConfirmed,true);
   release();await runtime.controller.initialRequest;assert.equal(runtime.controller.playback.state,'playing');assert.notEqual(runtime.controller.playback.preview,true);assert.equal((await runtime.refresh()).imageConfirmed,true);
   assert.equal(await client.evaluate('document.querySelector("textarea").value'),'untouched fixture');
-  const report={pass:true,coldOffStartsNoEngine:true,neutralFallbackDecoded:true,rates,offClosesSceneTarget:true,staticLoadsUnchanged:true,offSettingSurvivesRestart:true,staticReadyBeforeLive:true,preloadedImageDecoded:true,firstLiveFramePromoted:true};await fs.writeFile('.state/scene-live-browser-result.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));
+  const report={pass:true,coldOffStartsNoEngine:true,neutralFallbackDecoded:true,rates,output4K:ultra.outputSize,offClosesSceneTarget:true,staticLoadsUnchanged:true,offSettingSurvivesRestart:true,staticReadyBeforeLive:true,preloadedImageDecoded:true,firstLiveFramePromoted:true};await fs.writeFile('.state/scene-live-browser-result.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));
  }finally{await runtime?.close();await service?.close();await receiver.close();await library.close()}
 })().catch(e=>{console.error(e.stack);if(e.dimensions)console.error(JSON.stringify(e.dimensions));process.exitCode=1});

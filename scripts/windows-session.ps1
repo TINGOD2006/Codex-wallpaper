@@ -77,9 +77,10 @@ function Show-ThemeDesktop {
     $window=[CodexWindowActivation]::Find([int]$Identity.pid)
     for($attempt=0;$window -eq [IntPtr]::Zero -and $attempt -lt 150;$attempt++){Start-Sleep -Milliseconds 100;$window=[CodexWindowActivation]::Find([int]$Identity.pid)}
     if(-not [CodexWindowActivation]::ValidMain($window,[int]$Identity.pid)){throw '無法唯一核對 Codex 主視窗；未另開程序。'}
-    $package=@(Get-AppxPackage -Name OpenAI.Codex)
-    if($package.Count -ne 1 -or [IO.Path]::GetFullPath((Join-Path $package[0].InstallLocation 'app/ChatGPT.exe')) -ne [IO.Path]::GetFullPath($Identity.appPath)){throw 'Official activation identity changed'}
-    Invoke-CodexNativeActivation -Package @{packageFamily=$package[0].PackageFamilyName}
+    . (Join-Path $PSScriptRoot 'companion-hosts.ps1')
+    $packages=@(Get-CompanionPackages -HostId 'codex-desktop')
+    if($packages.Count -ne 1 -or -not (Get-CompanionProcessVersion -Package $packages[0] -AppPath $Identity.appPath)){throw 'Official activation identity changed'}
+    Invoke-CodexNativeActivation -Package $packages[0]
     # Cosmetic metadata is applied once per verified window/script version, not on every click.
     $metadataFile=Join-Path $Identity.runDirectory 'taskbar-applied.json'
     $stamp=[string](Get-Item -LiteralPath (Join-Path $PSScriptRoot 'codex-taskbar-identity.ps1')).LastWriteTimeUtc.Ticks

@@ -31,16 +31,27 @@ test('save failure is visible while preserving the last persisted settings',asyn
   const f=await fixture();try{const save=f.store.save;f.store.save=async()=>{throw new Error('disk full')};await f.c.select('a');assert.equal(f.host.image,'a');assert.equal(f.c.snapshot().dirty,true);assert.match(f.c.snapshot().error,/disk full/);assert.equal((await f.store.load()).wallpaper.selectedId,null);f.store.save=save}finally{await f.c.close()}
 });
 
-test('a renderer released after a minute hidden is healthy suspension and resumes only when visible',async()=>{
- const {rendererIsHealthy}=require('../../src/companion/runtime-runner.cjs');let prepared=0;
- const f=await fixture(async e=>{prepared++;return renderer(e.id)});
+test('a long window suspension preserves the renderer and pauses the rotation timer',async()=>{
+ const {rendererIsHealthy}=require('../../src/companion/runtime-runner.cjs');let prepared=0,resumes=0;
+ const f=await fixture(async e=>{
+  prepared++;
+  const lease=renderer(e.id);
+  lease.pause=async()=>{lease.status.state='paused'};
+  lease.resume=async()=>{lease.status.state='ready';resumes++};
+  return lease;
+ });
  try{
-  await f.c.select('a');f.c.windowVisible=()=>false;
-  const now=Date.now();await f.c.tick(now);await f.c.tick(now+61001);
-  assert.equal(f.c.active,null);assert.equal(prepared,1);
-  assert.equal(rendererIsHealthy(f.c.settings,f.c.playback,null,false),true);
-  await f.c.tick(now+62000);assert.equal(prepared,1);
-  f.c.windowVisible=()=>true;await f.c.tick(now+63000);assert.equal(prepared,2);assert.ok(f.c.active);
+  await f.c.select('a');
+  await f.c.patch({playback:{rotationEnabled:true,rotationSeconds:30,playlist:['a','b']}});
+  const initial=f.c.active;
+  f.c.windowVisible=()=>false;
+  const now=f.c.lastSwitch+1000;await f.c.tick(now);await f.c.tick(now+61001);
+  assert.equal(f.c.active,initial);assert.equal(initial.status.state,'paused');assert.equal(prepared,1);
+  assert.equal(rendererIsHealthy(f.c.settings,f.c.playback,initial,false),true);
+  f.c.windowVisible=()=>true;await f.c.tick(now+63000);
+  assert.equal(f.c.active,initial);assert.equal(f.c.settings.wallpaper.selectedId,'a');
+  assert.equal(resumes,1);assert.equal(prepared,1);
+  await f.c.tick(now+93000);assert.equal(f.c.settings.wallpaper.selectedId,'b');
  }finally{await f.c.close()}
 });
 test('native hang discards a queued live frame and recovers the same renderer even with hidden playback allowed',async()=>{

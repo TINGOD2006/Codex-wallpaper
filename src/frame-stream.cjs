@@ -35,7 +35,7 @@ class FrameStream {
       if(bounds.width<width||bounds.height<height||bounds.width>width+256||bounds.height>height+256)throw new Error('Capture window correction exceeds bounds');
       await this.client.send('Browser.setWindowBounds',{windowId:window.windowId,bounds});if(this.closed||epoch!==this.epoch)return;
       await this.client.send('Emulation.setVisibleSize',{width,height});
-    })().catch(error=>this.fail(error)).finally(()=>{this.repairTask=null});
+    })().catch(error=>{if(epoch===this.epoch)this.fail(error)}).finally(()=>{this.repairTask=null});
   }
   next(){
     if(this.failure)return Promise.reject(this.failure);
@@ -51,19 +51,20 @@ class FrameStream {
     const valid=()=>{if(this.closed||epoch!==this.epoch)throw new Error('Frame stream cancelled')};
     const job=(async()=>{
       try{
-        const {width,height,renderFps,displayFps}=this.options;
-        await this.client.send('Emulation.setDeviceMetricsOverride',{width,height,screenWidth:width,screenHeight:height,deviceScaleFactor:1,mobile:false,dontSetVisibleSize:false});valid();
-        await this.client.send('Emulation.setVisibleSize',{width,height});valid();
-        await this.client.send('Page.startScreencast',{format:'jpeg',quality:[65,80,92].includes(this.options.captureQuality)?this.options.captureQuality:92,maxWidth:width,maxHeight:height,everyNthFrame:Math.max(1,Math.round(renderFps/Math.min(displayFps,renderFps)))});valid();
+        const {width,height,captureQuality}=this.options;
+        if(!this.viewportReady){
+          await this.client.send('Emulation.setDeviceMetricsOverride',{width,height,screenWidth:width,screenHeight:height,deviceScaleFactor:1,mobile:false,dontSetVisibleSize:false});valid();
+          await this.client.send('Emulation.setVisibleSize',{width,height});valid();
+          this.viewportReady=true;
+        }
+        // The scene and receiver enforce their own frame rates. Keep capture
+        // geometry and encoder quality independent of either playback rate.
+        await this.client.send('Page.startScreencast',{format:'jpeg',quality:[65,80,92].includes(captureQuality)?captureQuality:92,maxWidth:width,maxHeight:height,everyNthFrame:1});valid();
         await ready.promise;valid();return this;
       }catch(e){if(epoch===this.epoch){this.active=false;await this.client.send('Page.stopScreencast').catch(()=>{})}throw e}
       finally{clearTimeout(timer);if(this.ready===ready)this.ready=null}
     })();this.starting=job;
     try{return await job}finally{if(this.starting===job)this.starting=null}
-  }
-  async configure(playback){
-    const changed=this.options.renderFps!==playback.renderFps||this.options.displayFps!==playback.displayFps;
-    if(changed&&this.active)await this.stop();this.options={...this.options,renderFps:playback.renderFps,displayFps:playback.displayFps};
   }
   async stop(){
     const active=this.active;this.active=false;this.epoch++;this.samples=[];this.consumed=this.sequence;this.waiter?.resolve(this.frame);this.ready?.reject(new Error('Frame stream cancelled'));

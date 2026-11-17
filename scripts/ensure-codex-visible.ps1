@@ -9,7 +9,7 @@ if($UseHostHint){
  $hint=Get-CodexHostHint -HintPath $hintPath
  if($hint){try{
   if(-not (Get-Command Invoke-CodexNativeActivation -ErrorAction SilentlyContinue)){. (Join-Path $PSScriptRoot 'codex-native-activation.ps1')}
-  Invoke-CodexNativeActivation -Package $hint.package
+  Invoke-CodexNativeActivation -Package $hint.package -ExpectedProcessId $hint.process.pid
   if($OnExistingWindow){& $OnExistingWindow $true}
   return
  }catch{# A stale registration/activation result receives a full rediscovery.
@@ -38,11 +38,13 @@ if($roots.Count -eq 0){
 }
 if($roots.Count -ne 1){throw '目前有多個原版主程序，請等待啟動完成。'}
 $candidate=$roots[0]
-$current=Get-CimInstance Win32_Process -Filter "ProcessId=$($candidate.pid)"
-if(-not $current -or $current.ExecutablePath -ne $package.appPath -or $current.CreationDate.ToUniversalTime().Ticks.ToString() -ne $candidate.startTime){throw 'Codex 視窗程序已變更，請重試。'}
+if($ExistingOnly){
+ $current=Get-CimInstance Win32_Process -Filter "ProcessId=$($candidate.pid)"
+ if(-not $current -or $current.ExecutablePath -ne $snapshot.appPath -or $current.CreationDate.ToUniversalTime().Ticks.ToString() -ne $candidate.startTime){return}
+}
 if($OnExistingWindow){& $OnExistingWindow $false}
 # Activate the official app contract. Showing its HWND alone can leave the
 # native tray/lifecycle state hidden even though Windows paints a restored UI.
 if(-not (Get-Command Invoke-CodexNativeActivation -ErrorAction SilentlyContinue)){. (Join-Path $PSScriptRoot 'codex-native-activation.ps1')}
-Invoke-CodexNativeActivation -Package $package
-if($UseHostHint){Write-CodexHostHint -HintPath $hintPath -Package $package -ProcessId $candidate.pid -StartTime $candidate.startTime}
+Invoke-CodexNativeActivation -Package $package -ExpectedProcessId $candidate.pid
+if($UseHostHint){Write-CodexHostHint -HintPath $hintPath -Package $snapshot -ProcessId $candidate.pid -StartTime $candidate.startTime}

@@ -1,7 +1,9 @@
 const path=require('node:path');
+const {isDeepStrictEqual}=require('node:util');
 const {connectManaged}=require('../cli.cjs'),{WindowMonitor}=require('../window-monitor.cjs'),{createWallpaperRuntime}=require('../wallpaper/runtime.cjs');
 const {structureExpression}=require('../adapters.cjs'),{probeAdapter}=require('../host-adapters/registry.cjs');
 const {abortableDelay}=require('../renderer/recovery.cjs');
+const {resolvePlayback}=require('../renderer/viewport.cjs');
 const {WallpaperHost,canShowFallback}=require('../wallpaper/host.cjs');
 const {preloadSceneStill,validFrame}=require('../wallpaper/scene-still.cjs');
 async function waitForReadyAdapter({inspect,appVersion,signal,onSample,sleep=abortableDelay}){
@@ -21,7 +23,7 @@ async function waitForReadyAdapter({inspect,appVersion,signal,onSample,sleep=abo
 function rendererIsHealthy(settings,playback,lease,visible){
  if(!settings.enabled||!settings.wallpaper.enabled||!settings.wallpaper.selectedId)return true;
  if(lease)return !lease.invalid&&['ready','paused'].includes(lease.status.state);
- // The controller intentionally releases a renderer after 60 seconds suspended.
+ // The renderer can be absent while a hidden or paused wallpaper is waiting for its first frame.
  if(playback.suspended===true&&(playback.state==='paused'||playback.state==='loading'&&playback.pendingId))return true;
  return playback.state==='paused'&&(settings.playback.paused||settings.playback.pauseWhenHidden&&!visible);
 }
@@ -64,18 +66,62 @@ async function observeRuntime({client,runtime,monitor,rendererService,transport}
  const settings=runtime.controller.settings,requestedImage=!!(settings.wallpaper.enabled&&settings.wallpaper.selectedId),lease=runtime.controller.active,rendererHealthy=rendererIsHealthy(settings,runtime.controller.playback,lease,monitor.stableVisible),controllerFailure=runtime.controller.snapshot().failure||{},serviceFailure=rendererService?.failureInfo()||{};
  return {...proof,suspended:failed(),connected:client.connected,layoutPassed:true,rendererHealthy,requestedImage,playback:runtime.controller.playback,failure:{retryManaged:!!rendererService||controllerFailure.retryManaged===true,retryBlocked:serviceFailure.retryBlocked===true||controllerFailure.retryBlocked===true}};
 }
-function createRuntimeRunner({paths,store,library,presets,rendererService,connect=connectManaged,watchWindow=file=>new WindowMonitor(file),createRuntime=createWallpaperRuntime}){
+
+function prepareStartupScene(rendererService,entry,settings,hostGeneration,hostSignal){
+ const {playback}=resolvePlayback(settings),performance=settings.performance;
+ const abort=new AbortController(),signal=hostSignal?AbortSignal.any([hostSignal,abort.signal]):abort.signal;
+ let available=true,cancellation;
+ const job=rendererService.prepare(entry,playback,{signal,performance,hostGeneration}).then(async lease=>{
+  try{
+   signal.throwIfAborted();
+   // Keep the captured first frame, but suspend rendering while the shell is still loading.
+   if(available)await lease.pause();
+   signal.throwIfAborted();
+   return lease;
+  }catch(error){await lease.close().catch(()=>{});throw error}
+ });
+ job.catch(()=>{});
+ function cancel(){
+  if(!available)return cancellation;
+  available=false;
+  abort.abort();
+  cancellation=job.then(lease=>lease.close()).catch(()=>{});
+  return cancellation;
+ }
+ return {cancel,async take(source,output,options){
+  if(!available)return;
+  if(source!==entry||options.explicitRetry||!isDeepStrictEqual(output,playback)||!isDeepStrictEqual(options.performance,performance)){
+   void cancel();
+   return;
+  }
+  available=false;
+  const requestSignal=options.signal;
+  const cancelRequest=()=>abort.abort(requestSignal.reason);
+  if(requestSignal?.aborted)cancelRequest();
+  requestSignal?.addEventListener('abort',cancelRequest,{once:true});
+  try{
+   const lease=await job;
+   if(signal.aborted){await lease.close().catch(()=>{});signal.throwIfAborted()}
+   return lease;
+  }finally{requestSignal?.removeEventListener('abort',cancelRequest)}
+ }};
+}
+
+function createRuntimeRunner({paths,store,library,libraryReady,initialSettings,presets,rendererService,startupMark,connect=connectManaged,watchWindow=file=>new WindowMonitor(file),createRuntime=createWallpaperRuntime}){
  let startupImage=null,fallback=null;
  const wantsFallback=settings=>settings?.enabled&&settings.wallpaper?.enabled&&settings.wallpaper.selectedId;
+ const wantsLiveScene=settings=>wantsFallback(settings)&&!settings.performance?.powerSaving&&settings.playback?.sceneLive!==false&&!settings.playback?.paused&&settings.performance?.rendererMode!=='isolated';
  const sameHost=(a,b)=>a&&b&&a.pid===b.pid&&a.startTime===b.startTime&&a.appVersion===b.appVersion;
  const preload=settings=>{
-  if(!wantsFallback(settings))return;
-  const selectedId=settings.wallpaper.selectedId,entry=library?.get(selectedId)||{id:selectedId};
+  const selectedId=wantsFallback(settings);
+  if(!paths?.data||!selectedId)return;
   if(startupImage?.selectedId!==selectedId){
-   startupImage={selectedId,job:preloadSceneStill({entry,dataRoot:paths.data}).then(candidates=>({selectedId,candidates}),()=>({selectedId,candidates:[]}))};
+   // A saved frame is keyed by selection and can be read before Steam or WebGL is ready.
+   startupImage={selectedId,job:preloadSceneStill({entry:{id:selectedId},dataRoot:paths.data}).then(candidates=>({selectedId,candidates}),()=>({selectedId,candidates:[]}))};
   }
   return startupImage.job;
  };
+ if(initialSettings)preload(initialSettings);
  async function clearFallback({client,signal,isCurrent=()=>true}={}){
   const current=fallback;
   if(!current||!isCurrent(current.session))return true;
@@ -89,9 +135,13 @@ function createRuntimeRunner({paths,store,library,presets,rendererService,connec
   }catch{return false}finally{ownedClient?.close()}
  }
  return {resetFailures(){rendererService?.resetFailures()},prewarm(settings){
-   const entry=library?.get(settings.wallpaper?.selectedId);
-   if(paths?.data)void preload(settings);
-   if(settings.enabled&&settings.wallpaper?.enabled&&!settings.performance?.powerSaving&&settings.playback?.sceneLive!==false&&!settings.playback?.paused&&entry?.kind==='scene'&&entry.capability==='supported'&&settings.performance?.rendererMode!=='isolated')return rendererService?.warm?.();
+   preload(settings);
+   if(!wantsLiveScene(settings))return;
+   const warm=()=>{
+    const entry=library?.get(settings.wallpaper.selectedId);
+    if(entry?.kind==='scene'&&entry.capability==='supported')return rendererService?.warm?.();
+   };
+   return libraryReady?libraryReady.then(warm):warm();
   },async probe(session){
    let client;try{({client}=await connect(path.join(session.runDirectory,'session.json')));let token;
     for(let n=0;n<2;n++){if(n)await require('../control.cjs').delay(150);const snapshot=await client.evaluate(`(()=>({...${structureExpression},documentToken:String(performance.timeOrigin)}))()`),adapter=probeAdapter({host:{kind:'codex-desktop',appVersion:session.appVersion},structure:snapshot});if(!adapter.ok||!snapshot.documentToken)return false;const key=JSON.stringify([snapshot.documentToken,adapter.kind]);if(n&&key!==token)return false;token=key}return true;
@@ -99,9 +149,9 @@ function createRuntimeRunner({paths,store,library,presets,rendererService,connec
   },fallbackFor(session){return sameHost(fallback?.session,session)?fallback.source:null},
   clearFallback,
   async attach(session,appearance,{signal,sessionCurrent=()=>true,onFallback=()=>{}}={}){
-  signal?.throwIfAborted();const file=path.join(session.runDirectory,'session.json');let client,runtime,monitor,transport;
+  signal?.throwIfAborted();const file=path.join(session.runDirectory,'session.json');let client,runtime,monitor,transport,startupScene;
   try{
-   ({client}=await connect(file,{signal}));monitor=watchWindow(file);transport=monitorTransport(client,monitor);
+   ({client}=await connect(file,{signal}));startupMark?.('debugPageMs');monitor=watchWindow(file);transport=monitorTransport(client,monitor);
    if(fallback&&!sameHost(fallback.session,session))fallback=null;
    const host=new WallpaperHost(client,session.appVersion);
    const saved=appearance?.controller?.snapshot?null:await store.load();
@@ -117,6 +167,12 @@ function createRuntimeRunner({paths,store,library,presets,rendererService,connec
      return lastSample;
     },appVersion:session.appVersion,signal,onSample:async(snapshot,layout)=>{
      const latest=settings(),selectedId=wantsFallback(latest);
+     // A fixed size lets our renderer work independently of the pending shell layout.
+     if(!startupScene&&rendererService?.prepare&&snapshot?.documentToken&&monitor.stableVisible&&transport.responsive()&&latest?.performance?.resolutionMode==='manual'&&wantsLiveScene(latest)){
+      const entry=library?.get(selectedId);
+      if(entry?.kind==='scene'&&entry.capability==='supported')startupScene=prepareStartupScene(rendererService,entry,latest,session.generation,signal);
+     }
+     if(!wantsLiveScene(latest)||latest?.playback?.pauseWhenHidden&&!monitor.stableVisible)void startupScene?.cancel();
      if(!selectedId){
       placeholder=null;
       attempted=null;
@@ -127,7 +183,7 @@ function createRuntimeRunner({paths,store,library,presets,rendererService,connec
      if(attempted?.documentToken===snapshot.documentToken&&attempted.selectedId===selectedId)return;
      attempted={documentToken:snapshot.documentToken,selectedId};
      placeholder=null;
-     const {candidates}=await preload(latest);
+     const {candidates=[]}=await preload(latest)||{};
      signal?.throwIfAborted();
      if(!transport.responsive()||wantsFallback(settings())!==selectedId)return;
      const existing=fallback?.selectedId===selectedId&&fallback.documentToken===snapshot.documentToken?fallback:null;
@@ -143,11 +199,13 @@ function createRuntimeRunner({paths,store,library,presets,rendererService,connec
       }
      }
     }});
+    startupMark?.('shellReadyMs');
+    await libraryReady;
     signal?.throwIfAborted();
-    const preloaded=preload(settings());
+    const preloaded=placeholder?preload(settings()):undefined;
     startupImage=null;
     if(placeholder?.documentToken!==lastSample?.documentToken)placeholder=null;
-    runtime=await createRuntime({client,identity:session,projectRoot:path.resolve(__dirname,'../..'),dataRoot:paths.data,runtimeRoot:paths.runtime,mountPanel:false,windowVisible:()=>monitor.stableVisible,hostResponsive:transport.responsive,services:{store,library,presets,appearance,rendererService,startupImage:preloaded,startupPlaceholder:placeholder}});
+    runtime=await createRuntime({client,identity:session,projectRoot:path.resolve(__dirname,'../..'),dataRoot:paths.data,runtimeRoot:paths.runtime,mountPanel:false,windowVisible:()=>monitor.stableVisible,hostResponsive:transport.responsive,services:{store,library,presets,appearance,rendererService,startupImage:preloaded,startupPlaceholder:placeholder,startupScene,startupMark}});
     signal?.throwIfAborted();
     return {adapter,hostResponsive:transport.responsive,
      subscribeHealth(listener){return rendererService?.onHealth(event=>{const controller=runtime.controller,lease=controller.active,wants=controller.settings.enabled&&controller.settings.wallpaper.enabled&&controller.settings.wallpaper.selectedId;if(!wants||!lease||event.expected)return;const affected=event.scope==='lease'&&event.leaseId===lease.leaseId||event.scope==='pool'&&lease.status.backend==='pool'&&lease.rendererGeneration===event.affectedGeneration;if(affected)listener(event)})},
@@ -177,12 +235,15 @@ function createRuntimeRunner({paths,store,library,presets,rendererService,connec
        }:undefined});
        if(!keep&&result?.restored!==false&&sameHost(fallback?.session,session))fallback=null;
        return result;
-      }finally{transport.close();monitor.close();client.close()}
+      }finally{transport.close();monitor.close();client.close();await startupScene?.cancel()}
      }
     };
    }finally{signal?.removeEventListener('abort',closeRetired)}
   }catch(e){
-   await runtime?.close({preserveFrame:sameHost(fallback?.session,session)}).catch(()=>{});transport?.close();monitor?.close();client?.close();signal?.throwIfAborted();
+   const cancelling=startupScene?.cancel();
+   await runtime?.close({preserveFrame:sameHost(fallback?.session,session)}).catch(()=>{});transport?.close();monitor?.close();client?.close();
+   await cancelling;
+   signal?.throwIfAborted();
    if(e.code==='UNSUPPORTED_LAYOUT')e.code='ADAPTER_LAYOUT_MISMATCH';
    if(['PROTOCOL_TIMEOUT','HOST_UNRESPONSIVE','LAYOUT_CHANGED'].includes(e.code))e.code='HOST_ENDPOINT_PENDING';
    throw e;

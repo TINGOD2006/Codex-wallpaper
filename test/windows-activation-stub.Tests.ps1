@@ -8,4 +8,10 @@ if(@(Select-CompanionRootCandidates -Candidates @($old,$stub) -NowTicks ($now+[T
 if(@(Select-CompanionRootCandidates -Candidates @($stub) -NowTicks $now -HasWindow {$false}).Count -ne 1){throw 'The only official root was discarded'}
 $secondManaged=$stub.Clone();$secondManaged.managed=$true
 if(@(Select-CompanionRootCandidates -Candidates @($old,$secondManaged) -NowTicks $now -HasWindow {$false}).Count -ne 2){throw 'Multiple managed roots were hidden'}
-'PASS: unwindowed activation forwarding does not reconnect the managed UI; real and persistent ambiguity remains visible'
+$hasMain={param($id)$id -eq $old.pid}
+$roots=@(Select-CompanionRootCandidates -Candidates @($old,$secondManaged) -NowTicks $now -HasWindow $hasMain)
+if($roots.Count -ne 1 -or $roots[0].pid -ne $old.pid){throw 'Fresh managed activation forwarder invalidated the established window'}
+if(@(Select-CompanionRootCandidates -Candidates @($old,$secondManaged) -NowTicks $now -HasWindow {$true}).Count -ne 2){throw 'Actually windowed managed ambiguity was hidden'}
+if(@(Select-CompanionRootCandidates -Candidates @($old,$secondManaged) -NowTicks ($now+[TimeSpan]::FromSeconds(6).Ticks) -HasWindow $hasMain).Count -ne 2){throw 'Persistent managed ambiguity was hidden'}
+if(@(Select-CompanionRootCandidates -Candidates @($old,$secondManaged) -NowTicks $now -HasWindow {param($id)$id -eq $secondManaged.pid}).Count -ne 2){throw 'An older unwindowed process was misclassified as forwarding'}
+'PASS: short managed and ordinary activation forwarders preserve the established UI; windowed, persistent or unproven ambiguity remains visible'

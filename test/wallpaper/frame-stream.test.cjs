@@ -7,7 +7,10 @@ class Client extends EventEmitter{
 }
 test('frame stream holds only the latest frame and acknowledges every capture',async()=>{
  const c=new Client(),s=new FrameStream(c,{width:640,height:400,renderFps:30,displayFps:30},{measureFrame:()=>({width:640,height:400})});await s.start();assert.equal(s.frame,'data:image/jpeg;base64,first');c.push(2,'second');c.push(3,'latest');assert.equal(s.frame,'data:image/jpeg;base64,latest');assert.deepEqual(c.calls.filter(x=>x.method==='Page.screencastFrameAck').map(x=>x.params.sessionId),[1,2,3]);
- await s.stop();c.push(4,'after-stop');assert.equal(s.frame,'data:image/jpeg;base64,latest');await s.start();assert.equal(s.frame,'data:image/jpeg;base64,first');await s.close();assert.equal(c.listenerCount('notification'),0);assert.equal(s.frame,null);
+ await s.stop();c.push(4,'after-stop');assert.equal(s.frame,'data:image/jpeg;base64,latest');await s.start();assert.equal(s.frame,'data:image/jpeg;base64,first');
+ assert.equal(c.calls.filter(x=>x.method==='Emulation.setDeviceMetricsOverride').length,1);
+ assert.deepEqual(c.calls.filter(x=>x.method==='Page.startScreencast').map(x=>x.params),Array(2).fill({format:'jpeg',quality:92,maxWidth:640,maxHeight:400,everyNthFrame:1}));
+ await s.close();assert.equal(c.listenerCount('notification'),0);assert.equal(s.frame,null);
 });
 test('closing during first-frame wait cancels readiness without retaining callbacks',async()=>{
  const c=new Client();c.send=async function(method,params){this.calls.push({method,params});return {}};const s=new FrameStream(c,{width:640,height:400,renderFps:30,displayFps:30},{measureFrame:()=>({width:640,height:400})});const starting=s.start();const rejected=assert.rejects(starting,/closed|cancel/i);await new Promise(setImmediate);await s.close();await rejected;assert.equal(c.listenerCount('notification'),0);

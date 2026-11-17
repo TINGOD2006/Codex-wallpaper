@@ -103,6 +103,21 @@
 #codex-wallpaper-panel .cw-disclosure-body .cw-tools{margin:4px 0 0}
 #codex-wallpaper-panel .cw-control-group{border-top:1px solid var(--cw-line);margin-top:10px}
 #codex-wallpaper-panel .cw-frame-rate{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:5px 0 10px}
-#codex-wallpaper-panel #cw-section-presets>select,#codex-wallpaper-panel #cw-section-presets>input{width:100%;margin-bottom:8px}
+#codex-wallpaper-panel .cw-preset-tools{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+#codex-wallpaper-panel .cw-preset-save{flex:1 1 100%;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}
+#codex-wallpaper-panel .cw-preset-list{display:grid;gap:7px;list-style:none;margin:0;padding:0}
+#codex-wallpaper-panel .cw-preset-row{
+  display:grid;gap:7px;padding:9px;border:1px solid var(--cw-line);border-radius:9px;
+  background:color-mix(in srgb,var(--cw-raised) 64%,var(--cw-surface))
+}
+#codex-wallpaper-panel .cw-preset-row[data-applied=true]{border-color:color-mix(in srgb,var(--cw-accent) 50%,var(--cw-line))}
+#codex-wallpaper-panel .cw-preset-label{display:flex;align-items:baseline;flex-wrap:wrap;gap:3px 8px;min-width:0}
+#codex-wallpaper-panel .cw-preset-label strong{max-width:100%;overflow-wrap:anywhere}
+#codex-wallpaper-panel .cw-preset-active{color:var(--cw-accent)}
+#codex-wallpaper-panel .cw-preset-actions{display:flex;flex-wrap:wrap;gap:5px}
+#codex-wallpaper-panel .cw-preset-actions button{min-height:29px;padding:4px 8px;font-size:12px}
+#codex-wallpaper-panel .cw-preset-editor{display:grid;gap:7px;padding-top:8px;border-top:1px solid var(--cw-line)}
+#codex-wallpaper-panel .cw-preset-editor p{margin:0;overflow-wrap:anywhere}
+#codex-wallpaper-panel .cw-preset-editor .cw-danger{color:var(--app-color-text-danger,#bc5252);border-color:currentColor}
 @media(max-width:450px){#codex-wallpaper-panel .cw-body{padding:10px}#codex-wallpaper-panel .cw-tools button{font-size:11px}#codex-wallpaper-button{right:148px;font-size:11px;padding:0 8px}}
 @media(max-width:320px){#codex-wallpaper-panel .cw-now{grid-template-columns:36px minmax(0,1fr)}#codex-wallpaper-panel .cw-now .cw-thumbnail{width:36px;height:36px}#codex-wallpaper-panel .cw-quick-actions{grid-column:1/-1}#codex-wallpaper-panel .cw-grid[data-view=list] .cw-pick{grid-template-columns:40px minmax(0,1fr)}}

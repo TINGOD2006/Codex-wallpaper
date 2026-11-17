@@ -5,3 +5,17 @@ function fixture(){const closed=[],calls=[],url='http://127.0.0.1:1234/fixture/'
 test('pooled capture owns only its page and rejects a changed main document',async()=>{const f=fixture(),renderer=await createPooledRenderer({...f,kind:'scene',cachePolicy:{enabled:false}});assert.match(await renderer.frame(),/^data:image\/jpeg/);f.client.emit('notification',{method:'Page.frameNavigated',params:{frame:{id:'root',url:'http://127.0.0.1:1234/foreign/'}}});await assert.rejects(renderer.frame(),{code:'LEASE_DOCUMENT_CHANGED'});await renderer.close();await renderer.close();assert.deepEqual(f.closed,['target','source']);assert.equal(f.calls.includes('Browser.close'),false)});
 test('undersized first capture cannot become a ready lease',async()=>{const f=fixture();f.crop();await assert.rejects(createPooledRenderer({...f,kind:'scene',cachePolicy:{enabled:false}}),{code:'FRAME_DIMENSION_MISMATCH'});assert.deepEqual(f.closed,['target','source'])});
 test('same-URL reload revokes the previous document proof immediately',async()=>{const f=fixture(),renderer=await createPooledRenderer({...f,kind:'scene',cachePolicy:{enabled:false}});f.client.emit('notification',{method:'Page.frameNavigated',params:{frame:{id:'root',url:f.registration.rendererUrl}}});await assert.rejects(renderer.frame(),{code:'LEASE_DOCUMENT_CHANGED'});await renderer.close()});
+test('FPS updates keep the live scene and capture session at their original quality',async()=>{
+ const f=fixture(),evaluate=f.client.evaluate,changes=[];
+ const codexScene={paused:false,setFps:fps=>changes.push(fps),setVolume(){},resume(){changes.push('resume')},pause(){changes.push('pause')}};
+ f.client.evaluate=expression=>expression.includes('RENDERER_SAMPLE')?evaluate(expression):require('node:vm').runInNewContext(expression,{codexScene});
+ const stream={active:false,frame:'data:image/jpeg;base64,'+jpeg(640,400),
+  async start(){this.active=true;changes.push('start')},async stop(){this.active=false;changes.push('stop')},async close(){}};
+ const renderer=await createPooledRenderer({...f,kind:'scene',streamFactory:()=>stream});
+ try{
+  for(const fps of [15,60,30])await renderer.setPlayback({...f.playback,renderFps:fps,displayFps:fps,paused:false});
+  assert.deepEqual(changes,[30,'start',15,60,30]);
+  assert.deepEqual(renderer.status.outputSize,{width:640,height:400});
+  assert.equal(renderer.status.quality.jpeg,92);
+ }finally{await renderer.close()}
+});

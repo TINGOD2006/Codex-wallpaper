@@ -5,7 +5,7 @@ const {createMetricsTracker}=require('./metrics.cjs');
 const {createRecovery,abortableDelay}=require('./recovery.cjs');
 function qualifiedHash(){try{const value=JSON.parse(fs.readFileSync(path.join(__dirname,'cache-qualification.json'),'utf8')),guardHash=createHash('sha256').update(fs.readFileSync(path.resolve(__dirname,'../scene-renderer/cache-adapter.js'),'utf8').replace(/\r\n/g,'\n')).digest('hex');return value.schemaVersion===1&&value.verified===true&&value.cacheStorageHits===true&&value.fullQuality===true&&value.restartVerified===true&&value.guardHashFormat==='utf8-lf'&&value.guardHash===guardHash?value.engineHash:null}catch{return null}}
 function createRendererService(options){
- const {paths,prepareIsolated=prepareRenderer,fingerprint=fingerprintEntry,probe=(owner,source)=>probeCapabilities(owner,source,{durationMs:1000})}=options;
+ const {paths,startupMark,prepareIsolated=prepareRenderer,fingerprint=fingerprintEntry,probe=(owner,source)=>probeCapabilities(owner,source,{durationMs:1000})}=options;
  const browser=options.browser||createBrowserOwner({paths}),origin=options.origin||createAssetOrigin({paths}),cache=options.cache||createCacheController({browser,origin,qualifiedEngineHash:qualifiedHash()}),leases=new Set(),pending=new Set(),listeners=new Set(),closingAbort=new AbortController(),receiverTracker=createMetricsTracker(),managerInstance=options.managerInstance||randomUUID();let receiver={decodedFps:null};
  let performance=defaults().performance,closed=false,closing,active=null,preparing=0,requestEpoch=0,rendererGeneration=1,capabilityGeneration=null,capabilityJob,warmJob,poolFailure=null,pins=[],pinError=null;
  const recovery=createRecovery({now:options.now||Date.now});let needsRecovery=false,recoveryBlocked=false,lastFailureCode=null,invalidatingRoot=false;
@@ -55,7 +55,9 @@ function createRendererService(options){
   if(settings.explicitRetry&&purpose==='playback')resetFailures();
   if(!still&&entry.kind!=='image'&&(recoveryBlocked||recovery.snapshot().blocked))throw Object.assign(new Error('RENDERER_FAILED'),{code:'RENDERER_FAILED',...failureInfo(),retryBlocked:true});
   const policy=mergeSettings(defaults(),{performance:settings.performance||performance}).performance,epoch=purpose==='playback'?++requestEpoch:requestEpoch;let entryFingerprint,renderer,backend,fallbackReason=null;preparing++;
+  const scene=!still&&entry.kind==='scene'&&purpose==='playback';
   try{
+   if(scene)startupMark?.('scenePrepareStartedMs');
    try{entryFingerprint=still?createHash('sha256').update('still:'+entry.id).digest('hex'):await fingerprint(entry,{signal})}catch(error){if(error.name!=='AbortError')error.retryBlocked=true;throw error}checkAbort(signal);
    if(!still&&entry.kind!=='image'&&(recoveryBlocked||recovery.snapshot().blocked))throw Object.assign(new Error('RENDERER_FAILED'),{code:'RENDERER_FAILED',...failureInfo(),retryBlocked:true});
    if(!still&&needsRecovery&&purpose==='playback'&&entry.kind!=='image'){if(!recovery.allowRestart())throw Object.assign(new Error('RENDERER_FAILED'),{code:'RENDERER_FAILED',...failureInfo(),retryBlocked:true});await (options.sleep||abortableDelay)(recovery.delayMs(),signal);checkAbort(signal);needsRecovery=false}
@@ -66,7 +68,10 @@ function createRendererService(options){
     try{if(policy.rendererMode==='auto'&&poolFailure)throw renderError(poolFailure);await ensurePool();checkAbort(signal);renderer=await pool.prepare(entry,playback,{...settings,managerInstance,entryFingerprint,signal,purpose,rendererGeneration});backend='pool'}
     catch(error){checkAbort(signal);if(policy.rendererMode!=='auto'||!canFallback(error))throw error;poolFailure=error.code;fallbackReason=error.code;backend='isolated';renderer=await prepareIsolated(entry,playback,{signal,runtimeRoot:paths.runtime})}
    }
-   checkAbort(signal);if(closed)throw renderError('POOL_CLOSED');return wrap(renderer,{backend,kind:entry.kind,entryFingerprint,epoch,purpose,hostGeneration:settings.hostGeneration,managerInstance,fallbackReason});
+   checkAbort(signal);if(closed)throw renderError('POOL_CLOSED');
+   const lease=wrap(renderer,{backend,kind:entry.kind,entryFingerprint,epoch,purpose,hostGeneration:settings.hostGeneration,managerInstance,fallbackReason});
+   if(scene)startupMark?.('sceneRendererReadyMs');
+   return lease;
   }catch(error){await renderer?.close();recordFailure(error);if(error.name!=='AbortError')Object.assign(error,failureInfo());throw error}finally{preparing--;if(!leases.size&&!preparing)pool.armIdle?.()}
  }
  function prepare(entry,playback,settings={}){const signal=settings.signal?AbortSignal.any([settings.signal,closingAbort.signal]):closingAbort.signal,job=prepareWork(entry,playback,{...settings,signal});pending.add(job);job.then(()=>pending.delete(job),()=>pending.delete(job));return job}

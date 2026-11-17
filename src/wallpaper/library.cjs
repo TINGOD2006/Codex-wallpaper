@@ -23,7 +23,7 @@ async function discoverSteamRoots(){
   const libraries=[steam];try{const text=await fs.readFile(path.join(steam,'steamapps/libraryfolders.vdf'),'utf8');for(const m of text.matchAll(/"path"\s*"([^"\r\n]+)"/g))libraries.push(m[1].replace(/\\\\/g,'\\'))}catch{}
   const roots=[];for(const lib of libraries)try{const candidate=await real(path.join(lib,'steamapps/workshop/content/431960'));if(!roots.some(p=>p.toLowerCase()===candidate.toLowerCase()))roots.push(candidate)}catch{}return roots;
 }
-function createLibrary({roots=[],dataRoot,runtimeRoot,renderPoster}){
+function createLibrary({roots=[],discoverRoots,dataRoot,runtimeRoot,renderPoster}){
   let entries=new Map(),sortedEntries=[],scanTask=null,closed=false,diagnostics=[];const imports=path.join(dataRoot,'imports'),queue=createThumbnailQueue(),thumbnail=createThumbnailer({dataRoot,queue}),poster=createPosterCache({dataRoot,queue,runtimeRoot,renderPoster});
   async function project(base,dir,managed=false){
     try{
@@ -41,6 +41,10 @@ function createLibrary({roots=[],dataRoot,runtimeRoot,renderPoster}){
     if(closed)return [];
     if(scanTask)return scanTask;
     scanTask=(async()=>{
+      if(discoverRoots){
+        roots.unshift(...await discoverRoots());
+        discoverRoots=null;
+      }
       const found=new Map(),seen=new Set();diagnostics=[];
       for(const requested of [...roots,imports]){if(closed)break;
         let base;try{base=await real(requested)}catch{continue}const key=base.toLowerCase();if(seen.has(key))continue;seen.add(key);

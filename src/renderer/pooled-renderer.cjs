@@ -30,7 +30,17 @@ class PooledRenderer{
  operation(work){if(this.closed)return Promise.resolve();const job=this.tail.then(()=>{this.assertCurrent();return work()});this.tail=job.catch(()=>{});return job}
  pause(){return this.operation(async()=>{await this.client.evaluate('codexScene.pause()');await this.stream?.stop();this.status.state='paused'})}
  resume(){return this.operation(async()=>{await this.client.evaluate('codexScene.resume()');await this.stream?.start();this.status.state='ready'})}
- setPlayback(value){return this.operation(async()=>{this.playback={...this.playback,...value};await this.client.evaluate(`(()=>{codexScene.setFps(${value.renderFps});codexScene.setVolume(${value.muted?0:value.volume});codexScene.${value.paused?'pause':'resume'}()})()`);if(this.stream){await this.stream.configure(value);if(value.paused)await this.stream.stop();else await this.stream.start()}this.status.state=value.paused?'paused':'ready'})}
+ setPlayback(value){return this.operation(async()=>{
+  const paused=value.paused===true;
+  await this.client.evaluate(`(()=>{
+   codexScene.setFps(${value.renderFps});
+   codexScene.setVolume(${value.muted?0:value.volume});
+   if(codexScene.paused!==${paused})codexScene.${paused?'pause':'resume'}();
+  })()`);
+  this.playback={...this.playback,...value};
+  if(this.stream&&paused===this.stream.active){if(paused)await this.stream.stop();else await this.stream.start()}
+  this.status.state=paused?'paused':'ready';
+ })}
  close(){if(this.closing)return this.closing;this.closed=true;this.closing=(async()=>{await this.tail;await this.stream?.close();this.client.off('notification',this.listener);this.client.off('disconnected',this.disconnected);try{await this.target.close()}finally{await this.registration.revoke();this.status.state='stopped'}})();return this.closing}
 }
 async function createPooledRenderer(options){return new PooledRenderer(options).start(options.signal)}

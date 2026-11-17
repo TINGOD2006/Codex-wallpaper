@@ -1,6 +1,7 @@
 param([switch]$Quiet)
 $ErrorActionPreference='Stop'
-$env:MIKU_PWSH=(Get-Process -Id $PID).Path
+$entryProcess=Get-Process -Id $PID
+$env:MIKU_PWSH=$entryProcess.Path
 $launchMutex=$null;$launchLocked=$false
 $launchTimer=[Diagnostics.Stopwatch]::StartNew()
 $bootAnimation=[pscustomobject]@{value=$null;reason='not-requested';outcome=$null;error=$null}
@@ -13,9 +14,9 @@ function Show-LaunchedCodex {
 function Write-WallpaperLaunchResult([string]$Result,[string]$Code){
  try{
   $logs=Join-Path (Split-Path $projectRoot) 'logs';New-Item -ItemType Directory -Path $logs -Force|Out-Null
-  $record=@{at=[DateTime]::UtcNow.ToString('o');result=$Result;code=$Code;elapsedMs=$launchTimer.ElapsedMilliseconds;nativeRequestMs=$entryState.nativeRequestMs;hostHintUsed=$entryState.hostHintUsed;phase=$state.phase;applied=$state.observed.applied;connected=$state.observed.connected;appVersion=$state.observed.appVersion;animationStarted=!!$bootAnimation.value.playerPid;animationReason=$bootAnimation.reason;animationOutcome=$bootAnimation.outcome;animationError=$bootAnimation.error;animationLaunchId=$bootAnimation.value.launchId;nativeInvoked=$entryState.nativeInvoked;nativeActivationError=$entryState.activationError}
+  $record=@{at=[DateTime]::UtcNow.ToString('o');entryStartedAt=$entryProcess.StartTime.ToUniversalTime().ToString('o');coldStart=$entryState.cold;result=$Result;code=$Code;elapsedMs=$launchTimer.ElapsedMilliseconds;nativeRequestMs=$entryState.nativeRequestMs;hostHintUsed=$entryState.hostHintUsed;phase=$state.phase;applied=$state.observed.applied;connected=$state.observed.connected;appVersion=$state.observed.appVersion;animationStarted=!!$bootAnimation.value.playerPid;animationReason=$bootAnimation.reason;animationOutcome=$bootAnimation.outcome;animationError=$bootAnimation.error;animationLaunchId=$bootAnimation.value.launchId;nativeInvoked=$entryState.nativeInvoked;nativeActivationError=$entryState.activationError}
   $record|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $logs 'last-launch.json') -Encoding utf8
-  if($bootAnimation.reason -in @('cold-start','start-failed')){$record|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $logs 'last-cold-launch.json') -Encoding utf8}
+  if($entryState.cold){$record|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $logs 'last-cold-launch.json') -Encoding utf8}
  }catch{}
 }
 try {

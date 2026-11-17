@@ -4,6 +4,7 @@ $monitorIdentityPath=$IdentityPath
 . (Join-Path $PSScriptRoot 'windows-session.ps1')
 . (Join-Path $PSScriptRoot 'window-activation.ps1')
 . (Join-Path $PSScriptRoot 'codex-native-activation.ps1')
+. (Join-Path $PSScriptRoot 'companion-hosts.ps1')
 $identity=Get-Content -LiteralPath $monitorIdentityPath -Raw | ConvertFrom-Json
 Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class MikuWindowState { [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h); [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h); [DllImport("user32.dll")] public static extern bool IsHungAppWindow(IntPtr h); [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }'
 $process=[Diagnostics.Process]::GetProcessById([int]$identity.pid)
@@ -34,8 +35,8 @@ try{
     $unresponsive=if($handle -ne 0){[MikuWindowState]::IsHungAppWindow($handle)}else{$null}
     if($wasIconic -and $visible -and -not $unresponsive -and [MikuWindowState]::GetForegroundWindow() -eq $handle){
      try{
-      $package=@(Get-AppxPackage -Name OpenAI.Codex)
-      if((!$pinned -or !$process.HasExited) -and $package.Count -eq 1 -and [IO.Path]::GetFullPath((Join-Path $package[0].InstallLocation 'app/ChatGPT.exe')) -eq [IO.Path]::GetFullPath($identity.appPath)){Invoke-CodexNativeActivation -Package @{packageFamily=$package[0].PackageFamilyName} -OnlyIfForeground $handle}
+      $packages=@(Get-CompanionPackages -HostId 'codex-desktop')
+      if((!$pinned -or !$process.HasExited) -and $packages.Count -eq 1 -and (Get-CompanionProcessVersion -Package $packages[0] -AppPath $identity.appPath)){Invoke-CodexNativeActivation -Package $packages[0] -OnlyIfForeground $handle}
      }catch{[Console]::Error.WriteLine('NATIVE_RESTORE_ACTIVATION_FAILED')}
     }
     if(-not $unresponsive){$wasIconic=$iconic}
