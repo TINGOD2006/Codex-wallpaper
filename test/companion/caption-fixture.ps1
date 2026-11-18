@@ -8,5 +8,23 @@ $owned=Get-CimInstance Win32_Process -Filter "ProcessId=$PID"
 $native=[Diagnostics.Process]::GetCurrentProcess()
 @{pid=$PID;startTime=$owned.CreationDate.ToUniversalTime().Ticks.ToString();appPath=$owned.ExecutablePath;appVersion='fixture';testNativeStamp=$native.StartTime.ToUniversalTime().Ticks.ToString();testNativePath=$native.MainModule.FileName}|ConvertTo-Json|Set-Content -LiteralPath $IdentityPath
 $script:last='';$script:shown=$false;$timer=[Windows.Forms.Timer]::new();$timer.Interval=100
-$timer.add_Tick({if(-not $script:shown){[void][CaptionFixtureShow]::ShowWindow($form.Handle,8);$script:shown=$true};if(Test-Path -LiteralPath $CommandsPath){try{$c=Get-Content -LiteralPath $CommandsPath -Raw|ConvertFrom-Json;if($c.id -ne $script:last){$script:last=$c.id;switch($c.action){'move'{$form.Location=[Drawing.Point]::new(180,130);$form.Size=[Drawing.Size]::new(1040,700);$form.Activate()};'maximize'{$form.WindowState='Maximized';$form.Activate()};'minimize'{$form.WindowState='Minimized'};'restore'{$form.WindowState='Normal';$form.Activate()};'exit'{$form.Close()}}}}catch{}}})
+$timer.add_Tick({
+ if(-not $script:shown){[void][CaptionFixtureShow]::ShowWindow($form.Handle,8);$script:shown=$true}
+ if(-not(Test-Path -LiteralPath $CommandsPath)){return}
+ try{
+  $command=Get-Content -LiteralPath $CommandsPath -Raw|ConvertFrom-Json
+  if($command.id -eq $script:last){return}
+  $script:last=$command.id
+  switch($command.action){
+   'translate'{
+    for($i=1;$i -le 8;$i++){$form.Location=[Drawing.Point]::new((100+$i*8),(100+$i*4));Start-Sleep -Milliseconds 48}
+   }
+   'move'{$form.Location=[Drawing.Point]::new(180,130);$form.Size=[Drawing.Size]::new(1040,700);$form.Activate()}
+   'maximize'{$form.WindowState='Maximized';$form.Activate()}
+   'minimize'{$form.WindowState='Minimized'}
+   'restore'{$form.WindowState='Normal';$form.Activate()}
+   'exit'{$form.Close()}
+  }
+ }catch{}
+})
 try{$timer.Start();[Windows.Forms.Application]::Run($form)}finally{$timer.Dispose();$form.Dispose()}

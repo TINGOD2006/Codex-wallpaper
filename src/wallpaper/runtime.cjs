@@ -3,7 +3,7 @@ const {createStore}=require('./store.cjs'),{migrateLegacy}=require('./migration.
 const {WallpaperHost}=require('./host.cjs'),{WallpaperController}=require('./controller.cjs'),{WallpaperPanel}=require('./panel.cjs'),{createPresets}=require('./presets.cjs'),{createCommandHandler}=require('./commands.cjs'),{prepareRenderer}=require('./renderer.cjs'),{chooseFile}=require('./file-dialog.cjs');
 const {detectLayout}=require('../adapters.cjs');
 const {ensureSettingsV2}=require('./settings-migration.cjs');
-async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path.join(projectRoot,'.state/wallpaper'),runtimeRoot,roots,windowVisible,hostResponsive=()=>true,services,mountPanel=true,Host=WallpaperHost,Panel=WallpaperPanel}){
+async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path.join(projectRoot,'.state/wallpaper'),runtimeRoot,roots,windowVisible,onWindowMotion,hostResponsive=()=>true,services,mountPanel=true,Host=WallpaperHost,Panel=WallpaperPanel}){
  const assertResponsive=()=>{if(!hostResponsive())throw Object.assign(new Error('Host is not responding'),{code:'HOST_UNRESPONSIVE'})};
  assertResponsive();
  // Remove only verified legacy nodes, before measuring native surfaces. No legacy ThemeSession runs alongside this runtime.
@@ -33,8 +33,14 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
  },windowVisible,hostResponsive}),presets=services?.presets||createPresets({dataRoot,store,library}),panel=mountPanel?new Panel(client,{sessionId:identity.sessionId,appVersion:identity.appVersion}):null;
  const view=()=>services?.appearance?services.appearance.view():Promise.resolve({...controller.snapshot(),cards:library.cards(controller.settings),presets:[]});
  let viewportJob;
- const measureViewport=()=>{if(!host.viewport||!hostResponsive())return Promise.resolve();if(viewportJob)return viewportJob;const job=host.viewport().then(value=>controller.setViewport(value));viewportJob=job;job.then(()=>{if(viewportJob===job)viewportJob=null},()=>{if(viewportJob===job)viewportJob=null});return job};
+ const measureViewport=()=>{if(!host.viewport||controller.windowMoving||!hostResponsive())return Promise.resolve();if(viewportJob)return viewportJob;const job=host.viewport().then(value=>controller.setViewport(value));viewportJob=job;job.then(()=>{if(viewportJob===job)viewportJob=null},()=>{if(viewportJob===job)viewportJob=null});return job};
  const resized=event=>{if(event.method==='Page.frameResized'&&(!windowVisible||windowVisible()))measureViewport().catch(()=>{})};
+ const stopMotion=onWindowMotion?.(moving=>{
+  controller.setWindowMoving(moving);
+  if(!moving&&(!windowVisible||windowVisible())){
+   void Promise.resolve(viewportJob).catch(()=>{}).then(()=>{if(!controller.closed)return measureViewport()}).catch(()=>{});
+  }
+ });
  let confirmation=null,confirmedAt=0,lastPreviewWrite=0,previewWrite;
  let dynamicMarked=false;
  const noteDynamicFrame=()=>{
@@ -78,7 +84,7 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
   else{void services?.startupScene?.cancel();noteDynamicFrame()}
   assertResponsive();if(services?.appearance)await services.appearance.attach(controller,identity.generation);
   if(panel){const handler=services?.appearance?{dispatch:command=>services.appearance.dispatch(command),close(){}}:createCommandHandler({sessionId:identity.sessionId,panelId:panel.panelId,controller,library,presets,chooseFile:options=>chooseFile({...options,ownerPid:identity.pid})});await panel.mount(handler);await panel.update(await view(),library.cards(controller.settings),await presets.list())}assertResponsive();if(host.confirmApplied){confirmation=await host.confirmApplied(controller.settings);confirmedAt=Date.now()}
- }catch(e){client.off?.('notification',resized);await panel?.unmount();await controller.close({preserveFrame:!!services?.startupPlaceholder&&controller.settings.enabled&&controller.settings.wallpaper.enabled});if(services?.appearance)await services.appearance.detach(identity.generation);if(!services?.library)await library.close();throw e}
+ }catch(e){stopMotion?.();client.off?.('notification',resized);await panel?.unmount();await controller.close({preserveFrame:!!services?.startupPlaceholder&&controller.settings.enabled&&controller.settings.wallpaper.enabled});if(services?.appearance)await services.appearance.detach(identity.generation);if(!services?.library)await library.close();throw e}
  return {
   controller,library,presets,panel,host,
   status(){const snapshot=controller.snapshot(),requestedImage=!!(snapshot.settings.wallpaper.enabled&&snapshot.settings.wallpaper.selectedId),observedApplied=!!(snapshot.settings.enabled&&Date.now()-confirmedAt<=10000&&confirmation?.stylesConfirmed&&(!requestedImage||confirmation.imageConfirmed&&controller.active&&!controller.active.invalid&&['ready','paused'].includes(controller.active.status.state)));return {...snapshot,state:!snapshot.settings.enabled?'disabled':snapshot.playback.state==='error'?'error':observedApplied?'applied':'checking',observedApplied,layout:layout.kind,enabled:snapshot.settings.enabled,panelReady:!!panel?.ready,uiTogglePresent:!!panel?.ready,sceneAvailable:library.cards(snapshot.settings).some(c=>c.kind==='scene'&&c.capability==='supported'),sceneSelected:library.get(snapshot.settings.wallpaper.selectedId)?.kind==='scene',scene:snapshot.playback,reason:snapshot.error}},
@@ -102,7 +108,7 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
    else if(host.confirmApplied){confirmation=await host.confirmApplied(controller.settings);confirmedAt=Date.now()}
    return confirmation;
   },
-  async close(options){await previewWrite;client.off?.('notification',resized);await viewportJob?.catch(()=>{});await panel?.unmount();try{return await controller.close(options)}finally{if(services?.appearance)await services.appearance.detach(identity.generation);if(!services?.library)await library.close()}}
+  async close(options){stopMotion?.();await previewWrite;client.off?.('notification',resized);await viewportJob?.catch(()=>{});await panel?.unmount();try{return await controller.close(options)}finally{if(services?.appearance)await services.appearance.detach(identity.generation);if(!services?.library)await library.close()}}
  };
 }
 module.exports={createWallpaperRuntime};

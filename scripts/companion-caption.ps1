@@ -25,6 +25,7 @@ $script:regionSize=''
 $script:presentation=$null;$script:presentationRepairs=0
 $script:tip=[Windows.Forms.ToolTip]::new();$tip.SetToolTip($button,'Wallpaper 桌布設定')
 $script:sidebar=[CodexWallpaper.SidebarForm]::new();$sidebar.FormBorderStyle='None';$sidebar.ShowInTaskbar=$false;$sidebar.TopMost=$true;$sidebar.AutoScaleMode='None';$sidebar.BackColor=[Drawing.Color]::FromArgb(25,27,32);$sidebar.Text='Wallpaper 設定';$sidebar.KeyPreview=$true
+$motion=[CodexWallpaper.CaptionMotionFollower]::new($buttonForm,$sidebar,[bool]$FixtureHostPath)
 $loading=[Windows.Forms.Label]::new();$loading.Dock='Fill';$loading.TextAlign='MiddleCenter';$loading.Text='正在開啟 Wallpaper…';$loading.ForeColor=[Drawing.Color]::White;$sidebar.Controls.Add($loading)
 $sidebar.add_FormClosing({param($sender,$eventArgs);$eventArgs.Cancel=$true;$script:wantsOpen=$false;$sidebar.Hide()})
 $sidebar.add_KeyDown({param($sender,$eventArgs);if($eventArgs.KeyCode -eq 'Escape'){$script:wantsOpen=$false;$sidebar.Hide()}})
@@ -78,13 +79,14 @@ $timer.add_Tick({
   if($script:testScriptTask -and $script:testScriptTask.IsCompleted){$script:testScriptResult=$script:testScriptTask.GetAwaiter().GetResult();$script:testScriptTask=$null;$script:lastStatus=''}
   if($TestCommandsPath -and (Test-Path -LiteralPath $TestCommandsPath)){$command=Get-Content -LiteralPath $TestCommandsPath -Raw|ConvertFrom-Json;if($command.id -ne $script:lastTest){$script:lastTest=$command.id;switch($command.action){'open'{Open-CaptionSidebar};'inspect'{if($script:configured){$script:testScriptTask=$web.CoreWebView2.ExecuteScriptAsync('JSON.stringify({tabs:[...document.querySelectorAll("[role=tab]")].map(n=>n.textContent),hidden:document.getElementById("codex-wallpaper-panel")?.hidden,hostStatus:document.querySelector(".cw-host-state")?.textContent,width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth})')}};'close'{$script:wantsOpen=$false;$sidebar.Hide()};'drop-layer'{[void][CodexWallpaper.NativeCaption]::SetWindowPos($buttonForm.Handle,[IntPtr]::new(-2),0,0,0,0,0x213)};'exit'{$timer.Stop();[Windows.Forms.Application]::ExitThread()}}}}
   $script:animationActive=Test-WallpaperBootActive -RuntimeRoot $runtimeRoot -ProjectRoot (Split-Path $PSScriptRoot)
-  if($script:animationActive){$buttonForm.Hide();$sidebar.Hide();$script:presentation=$null;$script:verifiedHost=$false;$script:windowCount=0;Publish-CaptionStatus 'hidden' $null;return}
+  if($script:animationActive){$motion.Watch([IntPtr]::Zero);$buttonForm.Hide();$sidebar.Hide();$script:presentation=$null;$script:verifiedHost=$false;$script:windowCount=0;Publish-CaptionStatus 'hidden' $null;return}
   $layout=$null;$visible=$false;$script:presentation=$null;$script:windowCount=0;$script:verifiedHost=$script:target -and [CodexWallpaper.NativeCaption]::VerifyHost($script:target.pid,$script:target.startTime,$script:target.appPath)
   if($script:verifiedHost){
    $windows=@([CodexWallpaper.NativeCaption]::Windows($script:target.pid));$script:windowCount=$windows.Count;$foreground=[CodexWallpaper.NativeCaption]::GetAncestor([CodexWallpaper.NativeCaption]::GetForegroundWindow(),2)
    if($windows -contains $foreground){$script:targetWindow=$foreground}elseif($windows -notcontains $script:targetWindow){$script:targetWindow=if($windows.Count -eq 1){$windows[0]}else{[IntPtr]::Zero}}
    if($script:targetWindow -ne [IntPtr]::Zero -and ($FixtureHostPath -or $foreground -eq $script:targetWindow -or $foreground -eq $sidebar.Handle)){$layout=[CodexWallpaper.NativeCaption]::Layout($script:targetWindow);$visible=$null -ne $layout}
   }
+  $motion.Watch($(if($visible){$script:targetWindow}else{[IntPtr]::Zero}))
   if($visible){
    if($script:lastScale -ne $layout.Scale){$oldFont=$button.Font;$button.Font=[Drawing.Font]::new('Segoe UI',[single](13*$layout.Scale),[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel);if($script:lastScale -gt 0){$oldFont.Dispose()};$script:lastScale=$layout.Scale}
    $buttonBounds=[Drawing.Rectangle]::new($layout.Button.Left,$layout.Button.Top,$layout.Button.Width,$layout.Button.Height);if($buttonForm.Bounds -ne $buttonBounds){$buttonForm.Bounds=$buttonBounds};if(-not $buttonForm.Visible){$buttonForm.Show()}
@@ -96,6 +98,6 @@ $timer.add_Tick({
   $state=if($script:uiError){'error'}elseif($visible -and $script:presentation.Visible -and $script:presentation.TopMost -and $script:presentation.HitConfirmed){'ready'}elseif($visible){'starting'}elseif([CodexWallpaper.NativeCaption]::IsProbing($script:targetWindow)){'starting'}elseif($script:target -and -not $layout -and $script:targetWindow -ne [IntPtr]::Zero -and $foreground -eq $script:targetWindow -and -not [CodexWallpaper.NativeCaption]::IsIconic($script:targetWindow)){'unsupported'}else{'hidden'}
   if($state -eq 'unsupported'){$script:uiError='CAPTION_BOUNDS_UNAVAILABLE'}elseif($script:uiError -eq 'CAPTION_BOUNDS_UNAVAILABLE'){$script:uiError=$null}
   Publish-CaptionStatus $state $layout
- }catch{[Console]::Error.WriteLine($_.Exception.GetType().Name+': '+$_.Exception.Message);$script:pendingHost=$null;$script:pendingLink=$null;$script:failures++;$buttonForm.Hide();$sidebar.Hide();if($script:failures -ge 3){$script:uiError='RUNTIME_MISSING';Publish-CaptionStatus 'error' $null;$timer.Stop();[Windows.Forms.Application]::ExitThread()}}
+ }catch{[Console]::Error.WriteLine($_.Exception.GetType().Name+': '+$_.Exception.Message);$script:pendingHost=$null;$script:pendingLink=$null;$script:failures++;$motion.Watch([IntPtr]::Zero);$buttonForm.Hide();$sidebar.Hide();if($script:failures -ge 3){$script:uiError='RUNTIME_MISSING';Publish-CaptionStatus 'error' $null;$timer.Stop();[Windows.Forms.Application]::ExitThread()}}
 })
-try{$timer.Start();[Windows.Forms.Application]::Run()}finally{$timer.Stop();$timer.Dispose();$buttonForm.Dispose();$sidebar.Dispose();$tip.Dispose();$http.Dispose()}
+try{$timer.Start();[Windows.Forms.Application]::Run()}finally{$timer.Stop();$timer.Dispose();$motion.Dispose();$buttonForm.Dispose();$sidebar.Dispose();$tip.Dispose();$http.Dispose()}

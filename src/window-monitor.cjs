@@ -4,12 +4,14 @@ const {createJsonLines}=require('./json-lines.cjs');
 class WindowMonitor {
   visible=false;
   unresponsive=false;
+  moving=false;
+  motionListeners=new Set();
   constructor(identityPath,{spawnProcess=spawn,clock={setTimeout,clearTimeout},now=Date.now,settleMs=500}={}){
     this.clock=clock;this.now=now;this.settleMs=settleMs;this.visibleSince=null;this.responsiveSince=null;this.closed=false;this.timer=null;this.failures=0;
     const start=()=>{
       if(this.closed)return;
       const child=spawnProcess(process.env.MIKU_PWSH||'pwsh',['-NoProfile','-File',path.resolve(__dirname,'../scripts/window-state.ps1'),'-IdentityPath',identityPath],{windowsHide:true,stdio:['ignore','pipe','ignore']});this.child=child;
-      const failed=()=>{if(this.closed||this.child!==child||this.timer!==null)return;this.visible=false;this.visibleSince=null;this.child=null;child.kill();this.timer=clock.setTimeout(()=>{this.timer=null;start()},Math.min(30000,250*2**Math.min(this.failures++,7)))};
+      const failed=()=>{if(this.closed||this.child!==child||this.timer!==null)return;this.visible=false;this.visibleSince=null;this.child=null;this.setMoving(false);child.kill();this.timer=clock.setTimeout(()=>{this.timer=null;start()},Math.min(30000,250*2**Math.min(this.failures++,7)))};
       const receive=createJsonLines({onOverflow:failed,onValue:state=>{
         if(this.closed||this.child!==child||typeof state?.visible!=='boolean')return;
         const at=this.now();
@@ -18,13 +20,20 @@ class WindowMonitor {
         if(state.visible&&!this.visible)this.visibleSince=at;
         if(!state.visible)this.visibleSince=null;
         this.visible=state.visible;this.failures=0;
+        this.setMoving(state.visible&&!this.unresponsive&&state.moving===true);
       }});
       child.stdout.setEncoding('utf8');child.stdout.on('data',chunk=>{if(!this.closed&&this.child===child)receive(chunk)});
       child.on('error',failed);child.on('exit',failed);
     };start();
   }
+  setMoving(moving){
+    if(this.moving===moving)return;
+    this.moving=moving;
+    for(const notify of this.motionListeners)notify(moving);
+  }
+  onMotionChange(notify){this.motionListeners.add(notify);notify(this.moving);return ()=>this.motionListeners.delete(notify)}
   get stableResponsive(){return !this.unresponsive&&(this.responsiveSince===null||this.now()-this.responsiveSince>=this.settleMs)}
   get stableVisible(){return this.stableResponsive&&this.visible&&this.visibleSince!==null&&this.now()-this.visibleSince>=this.settleMs}
-  close(){this.closed=true;this.clock.clearTimeout(this.timer);this.timer=null;const child=this.child;this.child=null;child?.kill();}
+  close(){this.closed=true;this.motionListeners.clear();this.moving=false;this.clock.clearTimeout(this.timer);this.timer=null;const child=this.child;this.child=null;child?.kill();}
 }
 module.exports={WindowMonitor};

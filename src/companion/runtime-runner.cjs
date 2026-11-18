@@ -51,18 +51,19 @@ async function observeRuntime({client,runtime,monitor,rendererService,transport}
  const hostResponsive=()=>monitor.stableResponsive!==false&&transport?.responsive()!==false;
  const suspended=()=>({suspended:true,connected:client.connected,hostUnresponsive:!hostResponsive(),playback:{...runtime.controller.playback,state:'paused',suspended:true}});
  const hidden=()=>runtime.controller.settings?.playback.pauseWhenHidden&&!monitor.stableVisible;
+ const moving=()=>monitor.moving===true;
  // Avoid both DOM repairs and protocol pings while the native window is hung.
  if(monitor.stableResponsive===false)return suspended();
  const failed=()=>runtime.controller.playback.state==='error';
  if(hostResponsive()&&failed()&&!runtime.controller.playback.preview)return {suspended:true,connected:true,playback:runtime.controller.playback};
- if(hidden())return suspended();
+ if(hidden()||moving())return suspended();
  if(!hostResponsive())await transport?.recover();
  if(!client.connected)throw Object.assign(new Error('Host disconnected'),{code:'HOST_IDENTITY_CHANGED'});
- if(!hostResponsive()||hidden())return suspended();
+ if(!hostResponsive()||hidden()||moving())return suspended();
  if(failed()&&!runtime.controller.playback.preview)return {suspended:true,connected:true,playback:runtime.controller.playback};
  let proof;
- try{proof=await runtime.refresh()}catch(error){if(client.connected&&(!hostResponsive()||hidden()))return suspended();throw error}
- if(!hostResponsive()||hidden())return suspended();
+ try{proof=await runtime.refresh()}catch(error){if(client.connected&&(!hostResponsive()||hidden()||moving()))return suspended();throw error}
+ if(!hostResponsive()||hidden()||moving())return suspended();
  const settings=runtime.controller.settings,requestedImage=!!(settings.wallpaper.enabled&&settings.wallpaper.selectedId),lease=runtime.controller.active,rendererHealthy=rendererIsHealthy(settings,runtime.controller.playback,lease,monitor.stableVisible),controllerFailure=runtime.controller.snapshot().failure||{},serviceFailure=rendererService?.failureInfo()||{};
  return {...proof,suspended:failed(),connected:client.connected,layoutPassed:true,rendererHealthy,requestedImage,playback:runtime.controller.playback,failure:{retryManaged:!!rendererService||controllerFailure.retryManaged===true,retryBlocked:serviceFailure.retryBlocked===true||controllerFailure.retryBlocked===true}};
 }
@@ -205,7 +206,12 @@ function createRuntimeRunner({paths,store,library,libraryReady,initialSettings,p
     const preloaded=placeholder?preload(settings()):undefined;
     startupImage=null;
     if(placeholder?.documentToken!==lastSample?.documentToken)placeholder=null;
-    runtime=await createRuntime({client,identity:session,projectRoot:path.resolve(__dirname,'../..'),dataRoot:paths.data,runtimeRoot:paths.runtime,mountPanel:false,windowVisible:()=>monitor.stableVisible,hostResponsive:transport.responsive,services:{store,library,presets,appearance,rendererService,startupImage:preloaded,startupPlaceholder:placeholder,startupScene,startupMark}});
+    runtime=await createRuntime({
+     client,identity:session,projectRoot:path.resolve(__dirname,'../..'),dataRoot:paths.data,runtimeRoot:paths.runtime,
+     mountPanel:false,windowVisible:()=>monitor.stableVisible,onWindowMotion:monitor.onMotionChange?.bind(monitor),
+     hostResponsive:transport.responsive,
+     services:{store,library,presets,appearance,rendererService,startupImage:preloaded,startupPlaceholder:placeholder,startupScene,startupMark}
+    });
     signal?.throwIfAborted();
     return {adapter,hostResponsive:transport.responsive,
      subscribeHealth(listener){return rendererService?.onHealth(event=>{const controller=runtime.controller,lease=controller.active,wants=controller.settings.enabled&&controller.settings.wallpaper.enabled&&controller.settings.wallpaper.selectedId;if(!wants||!lease||event.expected)return;const affected=event.scope==='lease'&&event.leaseId===lease.leaseId||event.scope==='pool'&&lease.status.backend==='pool'&&lease.rendererGeneration===event.affectedGeneration;if(affected)listener(event)})},

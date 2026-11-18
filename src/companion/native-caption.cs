@@ -18,6 +18,59 @@ namespace CodexWallpaper {
  [StructLayout(LayoutKind.Sequential)] public struct CaptionRect { public int Left,Top,Right,Bottom; public int Width { get {return Right-Left;} } public int Height {get{return Bottom-Top;}} }
  public class CaptionLayout { public CaptionRect Host,NativeButtons,Button,Sidebar;public double Scale; }
  public class CaptionPresentation {public bool Visible,TopMost,HitConfirmed,Repaired;public long HitRoot;}
+ public sealed class CaptionMotionFollower : IDisposable {
+  const uint LocationChange=0x800B;
+  delegate void WinEventProc(IntPtr hook,uint ev,IntPtr hwnd,int objectId,int childId,uint thread,uint timestamp);
+  [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint min,uint max,IntPtr module,WinEventProc callback,uint pid,uint thread,uint flags);
+  [DllImport("user32.dll")] static extern bool UnhookWinEvent(IntPtr hook);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window,out uint pid);
+
+  readonly Form button,sidebar;
+  readonly Timer frame=new Timer{Interval=16};
+  readonly WinEventProc callback;
+  readonly bool fixture;
+  IntPtr host,hook;
+  uint ownerPid;
+  bool disposed;
+
+  public CaptionMotionFollower(Form button,Form sidebar,bool fixture=false) {
+   this.button=button;this.sidebar=sidebar;this.fixture=fixture;
+   callback=OnLocationChanged;
+   frame.Tick+=(sender,args)=>Follow();
+  }
+  public void Watch(IntPtr window) {
+   if(disposed||host==window)return;
+   Stop();
+   if(window==IntPtr.Zero||GetWindowThreadProcessId(window,out ownerPid)==0)return;
+   host=window;
+   hook=SetWinEventHook(LocationChange,LocationChange,IntPtr.Zero,callback,ownerPid,0,2);
+  }
+  void OnLocationChanged(IntPtr source,uint ev,IntPtr hwnd,int objectId,int childId,uint thread,uint timestamp) {
+   if(!disposed&&source==hook&&hwnd==host&&objectId==0&&childId==0&&!frame.Enabled)frame.Start();
+  }
+  void Follow() {
+   frame.Stop();
+   uint pid;
+   if(host==IntPtr.Zero||GetWindowThreadProcessId(host,out pid)==0||pid!=ownerPid)return;
+   var foreground=NativeCaption.GetAncestor(NativeCaption.GetForegroundWindow(),2);
+   if(!fixture&&foreground!=host&&(!sidebar.IsHandleCreated||foreground!=sidebar.Handle))return;
+   var layout=NativeCaption.CachedPosition(host);
+   if(layout==null)return;
+   Move(button,layout.Button);
+   Move(sidebar,layout.Sidebar);
+  }
+  static void Move(Form form,CaptionRect bounds) {
+   if(!form.IsHandleCreated||!form.Visible||form.Left==bounds.Left&&form.Top==bounds.Top)return;
+   // Translate our overlays without changing their size, order, or focus.
+   NativeCaption.SetWindowPos(form.Handle,IntPtr.Zero,bounds.Left,bounds.Top,0,0,0x415);
+  }
+  void Stop() {
+   frame.Stop();
+   if(hook!=IntPtr.Zero){UnhookWinEvent(hook);hook=IntPtr.Zero;}
+   host=IntPtr.Zero;
+  }
+  public void Dispose() {if(disposed)return;Stop();disposed=true;frame.Dispose();}
+ }
  public static class NativeCaption {
   class AccessibleResult {public IntPtr Window;public int Width,Height,Dpi;public CaptionRect Relative;}
   static AccessibleResult cached;static Task<AccessibleResult> probe;static IntPtr probeWindow;static DateTime probeAt,nextProbe;
@@ -96,6 +149,12 @@ namespace CodexWallpaper {
    }
    value=AccessibleLayout(window,host,scale);
    return value==null?null:RememberLayout(window,host,dpi,style,zoomed,value,"accessibility");
+  }
+  internal static CaptionLayout CachedPosition(IntPtr window) {
+   if(layoutCache==null||layoutCache.Window!=window||!IsWindowVisible(window)||IsIconic(window)||IsZoomed(window)!=layoutZoomed)return null;
+   CaptionRect current;
+   if(!GetWindowRect(window,out current)||current.Width!=layoutCache.Width||current.Height!=layoutCache.Height||(int)GetDpiForWindow(window)!=layoutCache.Dpi||GetWindowStyle(window,-16).ToInt64()!=layoutStyle)return null;
+   return Calculate(current,layoutCache.Relative,Math.Max(96,layoutCache.Dpi)/96.0);
   }
   static CaptionLayout RememberLayout(IntPtr window,CaptionRect host,int dpi,long style,bool zoomed,CaptionLayout value,string source){layoutCache=new AccessibleResult{Window=window,Width=host.Width,Height=host.Height,Dpi=dpi,Relative=new CaptionRect{Left=value.NativeButtons.Left-host.Left,Top=value.NativeButtons.Top-host.Top,Right=value.NativeButtons.Right-host.Left,Bottom=value.NativeButtons.Bottom-host.Top}};layoutStyle=style;layoutZoomed=zoomed;LayoutSource=source;return value;}
   static AccessibleResult ProbeAccessible(IntPtr window) {

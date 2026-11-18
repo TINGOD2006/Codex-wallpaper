@@ -27,3 +27,24 @@ test('an unresponsive visible HWND stays suspended until a responsive sample set
   now=2500;assert.equal(monitor.stableResponsive,true);assert.equal(monitor.stableVisible,true);
  }finally{monitor.close()}
 });
+
+test('native motion is reported once per transition and cleared when hidden',()=>{
+ let child;
+ const monitor=new WindowMonitor('fixture.json',{spawnProcess(){
+  child=new EventEmitter();
+  child.stdout=Object.assign(new EventEmitter(),{setEncoding(){}});
+  child.kill=()=>{};
+  return child;
+ }});
+ const changes=[],off=monitor.onMotionChange(moving=>changes.push(moving));
+ const report=sample=>child.stdout.emit('data',JSON.stringify(sample)+'\n');
+ try{
+  report({visible:true,moving:true});
+  report({visible:true,moving:true});
+  report({visible:false,moving:true});
+  assert.deepEqual(changes,[false,true,false]);
+  off();
+  report({visible:true,moving:true});
+  assert.deepEqual(changes,[false,true,false]);
+ }finally{monitor.close()}
+});

@@ -6,7 +6,7 @@ $monitorIdentityPath=$IdentityPath
 . (Join-Path $PSScriptRoot 'codex-native-activation.ps1')
 . (Join-Path $PSScriptRoot 'companion-hosts.ps1')
 $identity=Get-Content -LiteralPath $monitorIdentityPath -Raw | ConvertFrom-Json
-Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class MikuWindowState { [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h); [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h); [DllImport("user32.dll")] public static extern bool IsHungAppWindow(IntPtr h); [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }'
+Add-Type -Path (Join-Path $PSScriptRoot '../src/companion/native-window-state.cs')
 $process=[Diagnostics.Process]::GetProcessById([int]$identity.pid)
 try{
   # Pin the original process before checking its full identity. The handle's signalled
@@ -17,7 +17,7 @@ try{
   }
   Confirm-ThemeSession $identity
   $wasIconic=$false
-  $lastVisible=$null;$lastUnresponsive=$null
+  $lastVisible=$null;$lastUnresponsive=$null;$lastMoving=$false
   while($true){
     if($pinned){
       if($process.HasExited){break}
@@ -40,10 +40,22 @@ try{
      }catch{[Console]::Error.WriteLine('NATIVE_RESTORE_ACTIVATION_FAILED')}
     }
     if(-not $unresponsive){$wasIconic=$iconic}
-    if($null -eq $lastVisible -or $lastVisible -ne $visible -or -not [object]::Equals($lastUnresponsive,$unresponsive)){
-      @{visible=$visible;unresponsive=$unresponsive}|ConvertTo-Json -Compress
+    $moving=$visible -and -not $unresponsive -and [MikuWindowState]::IsMoving($handle,$process.Id)
+    if($null -eq $lastVisible -or $lastVisible -ne $visible -or $lastMoving -ne $moving -or -not [object]::Equals($lastUnresponsive,$unresponsive)){
+      @{visible=$visible;unresponsive=$unresponsive;moving=$moving}|ConvertTo-Json -Compress
       $lastVisible=$visible;$lastUnresponsive=$unresponsive
+      $lastMoving=$moving
     }
-    Start-Sleep -Seconds 1
+    if(-not $visible -or $unresponsive){Start-Sleep -Seconds 1;continue}
+    # Reuse the verified HWND between slower discovery and visibility checks.
+    $until=[Environment]::TickCount64+950
+    do{
+      Start-Sleep -Milliseconds 65
+      $moving=[MikuWindowState]::IsMoving($handle,$process.Id)
+      if($lastMoving -ne $moving){
+        @{visible=$visible;unresponsive=$unresponsive;moving=$moving}|ConvertTo-Json -Compress
+        $lastMoving=$moving
+      }
+    }while([Environment]::TickCount64 -lt $until)
   }
 }finally{$process.Dispose()}
