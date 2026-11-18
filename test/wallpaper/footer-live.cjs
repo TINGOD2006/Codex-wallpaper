@@ -7,11 +7,35 @@ const {SceneEngine}=require('../../src/scene-engine.cjs'),{defaults}=require('..
   await engine.start();await engine.pause();const client=engine.client,frame=(await client.send('Page.getFrameTree')).frameTree.frame.id;
   await client.send('Page.setDocumentContent',{frameId:frame,html:`<!doctype html><style>body{margin:0}.surface{background:rgb(24,24,24)}.fade{background-image:linear-gradient(black,transparent)}[data-composer-surface-variant]{background:rgb(54,54,54);width:600px;height:100px}button{background:rgb(24,24,24)}</style><main data-app-shell-main-surface="default"><div data-app-action-timeline-scroll><div id="modern" class="background-uNUrfY surface-nr8PSS pointer-events-none absolute z-0 surface"></div><div id="fade" class="background-uNUrfY fade-AcMqqj pointer-events-none absolute z-0 fade"></div><div id="legacy" class="_background_18hic_a _surface_18hic_b pointer-events-none absolute z-0 surface"></div><div data-thread-scroll-footer="true"><div data-composer-surface-variant="default"><textarea>owned unsent fixture</textarea></div></div><button class="pointer-events-none">control</button><div id="unrelated" class="surface">unrelated</div></div></main>`});
   await client.evaluate(`document.querySelector('main').setAttribute('data-fixture','');document.body.innerHTML='<div data-app-shell-active-page="true">'+document.body.innerHTML+'</div>'`);
+  // Codex 26.1111 paints the bottom strip on pseudo-elements of the native
+  // footer. An unrelated footer elsewhere and the composer must retain theirs.
+  await client.evaluate(`(()=>{
+   const timeline=document.querySelector('[data-app-action-timeline-scroll]');
+   timeline.classList.add('thread-scroll-container');
+   const style=document.createElement('style');
+   style.textContent='.footer-fixture::before{content:"";background-image:linear-gradient(transparent,rgb(24,24,24))}.footer-fixture::after{content:"";background-color:rgb(24,24,24)}';
+   document.head.append(style);
+   const footer=document.createElement('div');
+   footer.id='native-footer';footer.className='footer-fixture pointer-events-none absolute inset-x-0 z-20 bottom-0';
+   timeline.append(footer);
+   footer.append(timeline.querySelector('[data-thread-scroll-footer]'));
+   const unrelated=footer.cloneNode(false);unrelated.id='unrelated-footer';timeline.append(unrelated);
+  })()`);
+  const footerPaint=()=>client.evaluate(`(()=>{
+   const inspect=id=>{const e=document.getElementById(id);return [getComputedStyle(e,'::before').backgroundImage,getComputedStyle(e,'::after').backgroundColor]};
+   return {native:inspect('native-footer'),unrelated:inspect('unrelated-footer')};
+  })()`);
   const inspect=()=>client.evaluate(`(()=>{const style=id=>{const s=getComputedStyle(document.getElementById(id));return [s.backgroundColor,s.backgroundImage]};const c=document.querySelector('[data-composer-surface-variant]'),r=c.getBoundingClientRect();return {modern:style('modern'),fade:style('fade'),legacy:style('legacy'),composer:[getComputedStyle(c).backgroundColor,r.width,r.height],control:getComputedStyle(document.querySelector('button')).backgroundColor,unrelated:style('unrelated'),input:document.querySelector('textarea').value}})()`);
-  const before=await inspect(),css=buildWallpaperStyles(defaults(),{kind:'codex'}).background;
+  const before=await inspect(),paintBefore=await footerPaint(),css=buildWallpaperStyles(defaults(),{kind:'codex'}).background;
+  assert.match(paintBefore.native[0],/linear-gradient/);
+  assert.equal(paintBefore.native[1],'rgb(24, 24, 24)');
   await client.evaluate(`const style=document.createElement('style');style.id='fixture-wallpaper';style.textContent=${JSON.stringify(css)};document.head.append(style)`);
   const after=await inspect();for(const key of ['modern','fade','legacy'])assert.deepEqual(after[key],['rgba(0, 0, 0, 0)','none']);for(const key of ['composer','control','unrelated','input'])assert.deepEqual(after[key],before[key]);
+  const paintAfter=await footerPaint();
+  assert.deepEqual(paintAfter.native,['none','rgba(0, 0, 0, 0)']);
+  assert.deepEqual(paintAfter.unrelated,paintBefore.unrelated);
   await client.evaluate(`document.getElementById('fixture-wallpaper').remove()`);assert.deepEqual(await inspect(),before);
+  assert.deepEqual(await footerPaint(),paintBefore);
   console.log(JSON.stringify({pass:true,modernAndLegacyFooterCleared:true,composerAndControlsPreserved:true,restoration:true}));
  }finally{await engine.close()}
 })().catch(e=>{console.error(e.stack);process.exitCode=1});

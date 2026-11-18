@@ -11,9 +11,12 @@ function buildWallpaperStyles(settings,layout){
     const cover=r.fit==='cover'&&r.scale>=1,expandX=cover?Math.abs(r.offsetX):0,expandY=cover?Math.abs(r.offsetY):0;
     const filter=r.brightness===1&&r.contrast===1&&r.saturation===1&&r.blur===0?'none':`brightness(${r.brightness}) contrast(${r.contrast}) saturate(${r.saturation}) blur(${r.blur}px)`;
     const edge=cover?'':r.offsetX<0?`,linear-gradient(270deg,${mask} ${-r.offsetX}px,transparent ${-r.offsetX+128}px)`:r.offsetX>0?`,linear-gradient(90deg,${mask} ${r.offsetX}px,transparent ${r.offsetX+128}px)`:'';
+    const threadFooter=`${desktopSelectors.canvas} [data-app-action-timeline-scroll].thread-scroll-container > .pointer-events-none.absolute.inset-x-0.z-20:is([class^="footer-"],[class*=" footer-"]):has([data-composer-surface-variant])`;
     background=`${desktopSelectors.frame}{isolation:isolate;} ${desktopSelectors.canvas}{background-color:transparent!important;background-image:none!important;}
 /* Measured native thread-footer decorations; keep the actual composer surface intact. */
 ${desktopSelectors.canvas} [data-app-action-timeline-scroll] .pointer-events-none.absolute.z-0:is([class*="_background_"],[class^="background-"],[class*=" background-"]):is([class*="_fade_"],[class*="_surface_"],[class^="fade-"],[class*=" fade-"],[class^="surface-"],[class*=" surface-"]){background-color:transparent!important;background-image:none!important;}
+/* Newer Codex paints the strip on the footer's pseudo-elements. */
+${threadFooter}::before,${threadFooter}::after{background-color:transparent!important;background-image:none!important;}
 #codex-wallpaper-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:-1;background:${surface};}
 #codex-wallpaper-image{position:absolute;left:${-expandX}px;top:${-expandY}px;width:calc(100% + ${expandX*2}px);height:calc(100% + ${expandY*2}px);max-width:none;object-fit:${r.fit==='stretch'?'fill':r.fit};object-position:${r.x}% ${r.y}%;opacity:${r.opacity};filter:${filter};transform:translate(${r.offsetX}px,${r.offsetY}px) scale(${r.scale}) scaleX(${r.flip?-1:1});pointer-events:none;}
 #codex-wallpaper-scrim{position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,${mix(mask,r.scrim+.14)} 0%,${mix(mask,r.scrim+.12)} 45%,${mix(mask,r.scrim+.06)} 68%,${mix(mask,r.scrim-.16)} 100%)${edge};}`;
