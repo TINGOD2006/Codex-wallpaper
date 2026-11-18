@@ -1,22 +1,13 @@
 const fs=require('node:fs/promises'),path=require('node:path');
 const {createHash,randomUUID}=require('node:crypto'),{execFile}=require('node:child_process'),{promisify}=require('node:util');
 const {atomicJson,loadImage}=require('../config.cjs');
+const {readProjectMetadata}=require('../project-metadata.cjs');
 const {createThumbnailer,createPosterCache,createThumbnailQueue}=require('./thumbnails.cjs');
 const run=promisify(execFile),hash=s=>createHash('sha256').update(s.toLowerCase()).digest('hex').slice(0,16);
 const videoExtensions=new Set(['.mp4','.webm','.m4v','.mov','.mkv','.ogv']);
 async function real(file){return fs.realpath(file)}
 function within(base,file){return file===base||file.toLowerCase().startsWith(base.toLowerCase()+path.sep)}
 async function safeFile(base,name){if(typeof name!=='string'||!name||path.isAbsolute(name)||name.split(/[\\/]/).some(s=>s==='..'||s==='.')||name.includes('\0'))throw new Error('Resource path rejected');const file=await real(path.join(base,name));if(!within(base,file)||!(await fs.stat(file)).isFile())throw new Error('Resource outside project');return file}
-async function readMetadata(file){
-  const limit=1024*1024,handle=await fs.open(file,'r');
-  const oversized=()=>Object.assign(new Error('Project metadata exceeds 1 MiB'),{code:'METADATA_TOO_LARGE'});
-  try{
-    if((await handle.stat()).size>limit)throw oversized();
-    const bytes=Buffer.alloc(limit+1);let length=0;
-    while(length<bytes.length){const read=await handle.read(bytes,length,Math.min(65536,bytes.length-length),length);if(!read.bytesRead)break;length+=read.bytesRead}
-    if(length>limit)throw oversized();return JSON.parse(bytes.toString('utf8',0,length).replace(/^\uFEFF/,''));
-  }finally{await handle.close()}
-}
 async function discoverSteamRoots(){
   let steam=path.join(process.env['ProgramFiles(x86)']||'C:/Program Files (x86)','Steam');
   if(process.platform==='win32')try{const {stdout}=await run(process.env.MIKU_PWSH||'pwsh',['-NoProfile','-Command',"(Get-ItemProperty -LiteralPath 'HKCU:\\Software\\Valve\\Steam' -ErrorAction SilentlyContinue).SteamPath"],{windowsHide:true,timeout:5000});if(stdout.trim())steam=stdout.trim()}catch{}
@@ -28,7 +19,7 @@ function createLibrary({roots=[],discoverRoots,dataRoot,runtimeRoot,renderPoster
   async function project(base,dir,managed=false){
     try{
       if(closed)return null;const directory=await real(dir);if(!within(base,directory))return null;
-      const metadata=await readMetadata(await safeFile(directory,'project.json'));
+      const {project:metadata}=await readProjectMetadata(await safeFile(directory,'project.json'));
       const kind=String(metadata.type||'').toLowerCase();if(!['scene','video','image','web','application'].includes(kind))return null;
       const id=managed&&/^[\da-f-]{36}$/.test(metadata.importId||'')?'local:'+metadata.importId:'steam:'+hash(base)+':'+(String(metadata.workshopid||'').match(/^\d+$/)?.[0]||path.basename(directory));
       const entry={id,kind,title:String(metadata.title||path.basename(dir)).slice(0,300),rootId:hash(base),directory,mediaPath:null,previewPath:null,contentRating:typeof metadata.contentrating==='string'?metadata.contentrating:'unknown',capability:'unsupported',reason:'此類型尚未支援'};

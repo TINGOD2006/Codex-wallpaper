@@ -11,3 +11,17 @@ test('JPEG size gate rejects malformed headers and accepts baseline and progress
  assert.deepEqual(jpegDimensions(jpeg(640,360)),{width:640,height:360});const progressive=Buffer.from(jpeg(400,700),'base64');progressive[3]=0xc2;assert.deepEqual(jpegDimensions(progressive.toString('base64')),{width:400,height:700});
  for(const value of ['',null,'not an image',Buffer.from('ffd8ffda0000ffd9','hex').toString('base64'),jpeg(0,720)])assert.equal(jpegDimensions(value),null);
 });
+
+test('JPEG size detection falls back to the bounded window for long metadata segments',()=>{
+ const original=Buffer.from(jpeg(2560,1440),'base64');
+ function withMetadata(payloadLength){
+  const segment=Buffer.alloc(payloadLength+4);
+  segment[0]=0xff;
+  segment[1]=0xe1;
+  segment.writeUInt16BE(payloadLength+2,2);
+  return Buffer.concat([original.subarray(0,2),segment,original.subarray(2)]).toString('base64');
+ }
+ assert.deepEqual(jpegDimensions(withMetadata(8192)),{width:2560,height:1440});
+ assert.equal(jpegDimensions(withMetadata(50000)),null);
+ assert.equal(jpegDimensions(withMetadata(8192).slice(0,5000)),null);
+});

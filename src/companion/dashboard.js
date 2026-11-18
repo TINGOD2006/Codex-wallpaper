@@ -18,11 +18,22 @@ window.renderCompanionState=renderCompanionState;
 window.managerPanelCommand=async text=>{
  const command=JSON.parse(text);try{const reply=await managerRequest('appearance.command',{command});window.__codexWallpaperPanel.receive(reply.result)}catch(e){window.__codexWallpaperPanel?.receive({...command,ok:false,error:e.message})}
 };
-async function poll(){if(managerPolling)return;managerPolling=true;try{const response=await fetch('/api/status');if(!response.ok)throw new Error('offline');const reply=await response.json();renderCompanionState(reply.state);const view=await managerRequest('view');window.__codexWallpaperPanel?.update(view.result)}catch{renderCompanionState({phase:'offline',observed:{applied:false},error:{message:'無法連線到管理器。請從系統匣或啟動入口重新開啟。'}})}finally{managerPolling=false}}
+async function poll(){
+ if(managerPolling||document.hidden)return;
+ managerPolling=true;
+ try{
+  // The view reply also contains current manager status.
+  const view=await managerRequest('view');
+  window.__codexWallpaperPanel?.update(view.result);
+ }catch{
+  renderCompanionState({phase:'offline',observed:{applied:false},error:{message:'無法連線到管理器。請從系統匣或啟動入口重新開啟。'}});
+ }finally{managerPolling=false}
+}
 async function boot(){
  const nonce=location.hash.slice(1);history.replaceState(null,'',location.pathname);if(nonce){const response=await fetch('/api/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nonce})});if(!response.ok)throw new Error('啟動連線已過期，請從系統匣重新開啟。')}
  const reply=await managerRequest('view');mountWallpaperPanel({sessionId:reply.state.instanceId,panelId:crypto.randomUUID(),binding:'managerPanelCommand',css:'',fullWindowMaterials:reply.result.fullWindowMaterials});window.__codexWallpaperPanel.update(reply.result);document.getElementById('codex-wallpaper-button').click();
  for(const button of document.querySelectorAll('[data-action]'))button.addEventListener('click',async()=>{button.disabled=true;try{const action=button.dataset.action,payload=action==='set-enabled'?{enabled:!managerState.desired.enabled}:['launch','wait-for-exit-and-launch'].includes(action)?{hostId:managerState.observed?.hostId||'codex-desktop'}:{};const result=await managerRequest(action,payload);document.querySelector('[data-notice]').textContent=result.result?.fileName?'診斷已保存：'+result.result.fileName:action==='exit'?'正在退出管理器…':'操作已送出。'}catch(e){document.querySelector('[data-notice]').textContent=e.message}finally{button.disabled=false}});
- await poll();setInterval(poll,1500);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll()});
+ setInterval(poll,1500);
 }
 boot().catch(error=>{renderCompanionState({phase:'offline',observed:{applied:false},error:{message:error.message}})});

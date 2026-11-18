@@ -17,6 +17,20 @@ const {FULL_WINDOW_MATERIALS}=require('../../src/wallpaper/styles.cjs');
   const css=await fs.readFile(path.resolve('src/wallpaper/panel.css'),'utf8');await c.evaluate(`(${mountWallpaperPanel.toString()})(${JSON.stringify({sessionId:'fixture',panelId:'fixture-panel',binding:'fixtureWallpaper',css,fullWindowMaterials:FULL_WINDOW_MATERIALS})})`);
   const state={...controller.snapshot(),rendering,cards:[...library.cards(controller.settings),{id:'bad:title',title:'<img src=x onerror="window.pwned=true">',kind:'web',contentRating:'unknown',capability:'unsupported'}],presets:await presets.list()};
   await c.evaluate(`__codexWallpaperPanel.update(${JSON.stringify(state)});document.getElementById('codex-wallpaper-button').click()`);
+  const refreshResult=await c.evaluate(`(()=>{
+    const state=${JSON.stringify(state)},panel=window.__codexWallpaperPanel;
+    panel.update(state);
+    const observer=new MutationObserver(()=>{});
+    observer.observe(document.getElementById('codex-wallpaper-panel'),{subtree:true,attributes:true,childList:true});
+    try{
+      panel.update(structuredClone(state));
+      const unchanged=observer.takeRecords().length;
+      panel.update({...state,rendering:{...state.rendering,decodedFps:23.5}});
+      const fpsUpdated=document.getElementById('cw-section-playback').textContent.includes('畫面 23.5 FPS');
+      return {unchanged,fpsUpdated};
+    }finally{observer.disconnect();panel.update(state)}
+  })()`);
+  assert.deepEqual(refreshResult,{unchanged:0,fpsUpdated:true});
   assert.equal(await c.evaluate(`document.querySelectorAll('#codex-wallpaper-panel [role=tab]').length`),5);assert.equal(await c.evaluate('!!window.pwned'),false);
   for(const width of [1536,768,375]){await c.send('Emulation.setDeviceMetricsOverride',{width,height:720,deviceScaleFactor:1,mobile:false});const rect=await c.evaluate(`(()=>{const r=document.getElementById('codex-wallpaper-panel').getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,bottom:r.bottom}})()`);assert.ok(rect.left>=0&&rect.right<=width&&rect.bottom<=720);if(width>450)assert.equal(rect.width,420)}
   await c.send('Emulation.setDeviceMetricsOverride',{width:1000,height:740,deviceScaleFactor:1,mobile:false});

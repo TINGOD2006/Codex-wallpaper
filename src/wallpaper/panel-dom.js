@@ -10,6 +10,14 @@ function mountWallpaperPanel(options){
  const pending=new Map(),controls=new Map(),scrollPositions=new Map();
  function el(tag,text,attrs={}){const node=document.createElement(tag);if(text!==null&&text!==undefined)node.textContent=text;for(const [k,v]of Object.entries(attrs))node.setAttribute(k,String(v));return node}
  function button(text,action,parent){const b=el('button',text,{type:'button'});b.addEventListener('click',action);parent?.append(b);return b}
+ // Assigning textContent or a reflected attribute can notify the accessibility
+ // tree and replace DOM nodes even when the displayed value is identical.
+ function syncProperty(element,property,value){
+  if(element[property]!==value)element[property]=value;
+ }
+ function syncAttribute(element,name,value){
+  if(element.getAttribute(name)!==value)element.setAttribute(name,value);
+ }
  const style=el('style',css,{id:'codex-wallpaper-panel-style','data-owner':OWNER});document.head.append(style);
  const launcher=el('button','◈ Wallpaper',{id:'codex-wallpaper-button','data-owner':OWNER,type:'button','aria-label':'Wallpaper 桌布設定','aria-expanded':'false','aria-controls':'codex-wallpaper-panel'});
  const panel=el('aside',null,{id:'codex-wallpaper-panel','data-owner':OWNER,'aria-label':'Wallpaper 設定'});panel.hidden=true;
@@ -61,7 +69,8 @@ function mountWallpaperPanel(options){
  function paintRange(input){
   const min=Number(input.min||0),max=Number(input.max||100),value=Number(input.value);
   const progress=max>min?Math.max(0,Math.min(100,(value-min)*100/(max-min))):0;
-  input.style.setProperty('--cw-range-progress',progress+'%');
+  const valueText=progress+'%';
+  if(input.style.getPropertyValue('--cw-range-progress')!==valueText)input.style.setProperty('--cw-range-progress',valueText);
  }
  const percent=value=>Math.round(value*100)+'%';
  const pixels=value=>value+' px';
@@ -361,10 +370,10 @@ function mountWallpaperPanel(options){
   const named=outputSizes.find(([,w,h])=>width===w&&height===h);
   const value=settings.performance.resolutionMode==='window'?'window':named?.[0]||'legacy';
   if(value==='legacy'){
-   legacyOutput.textContent='原有尺寸 · '+width+' × '+height;
+   syncProperty(legacyOutput,'textContent','原有尺寸 · '+width+' × '+height);
    if(!legacyOutput.parentElement)outputMenu.append(legacyOutput);
   }else legacyOutput.remove();
-  outputMenu.value=value;
+  syncProperty(outputMenu,'value',value);
  }
  outputMenu.addEventListener('change',async()=>{
   if(!model||outputMenu.disabled)return;
@@ -517,45 +526,65 @@ function mountWallpaperPanel(options){
   else message=playbackNames[p.state]||'等待套用';
   const detail=[current?kindName(current):'',message,model.dirty?'尚未儲存':''].filter(Boolean).join(' · ');
   if(status.textContent!==detail)status.textContent=detail;
-  pause.textContent=paused?'繼續':'暫停';
-  pause.setAttribute('aria-label',paused?'繼續播放':'暫停播放');
+  syncProperty(pause,'textContent',paused?'繼續':'暫停');
+  syncAttribute(pause,'aria-label',paused?'繼續播放':'暫停播放');
   const offline=hostState?.phase==='offline';
-  pause.disabled=!!pause.dataset.busy||!enabled||current?.capability!=='supported'||offline;
+  syncProperty(pause,'disabled',!!pause.dataset.busy||!enabled||current?.capability!=='supported'||offline);
   const upcoming=nextInPlaylist(model,playable);
-  next.disabled=!!next.dataset.busy||!enabled||!upcoming||offline;
-  next.title=upcoming?'播放輪播中的下一張':'在桌布庫加入可播放的輪播項目';
-  rotationCount.textContent=`${playable.length} 張`;
+  syncProperty(next,'disabled',!!next.dataset.busy||!enabled||!upcoming||offline);
+  syncProperty(next,'title',upcoming?'播放輪播中的下一張':'在桌布庫加入可播放的輪播項目');
+  syncProperty(rotationCount,'textContent',`${playable.length} 張`);
   pumpThumbnails();
  }
  function update(state){
   if(closed||!state?.settings||(model&&state.revision<model.revision))return;model=state;
   if(!savingBootAnimation&&typeof state.bootAnimationEnabled==='boolean'){
    bootAnimationEnabled=state.bootAnimationEnabled;
-   bootAnimation.checked=bootAnimationEnabled;
+   syncProperty(bootAnimation,'checked',bootAnimationEnabled);
   }
-  for(const [path,{input,output,type,format}]of controls){if(document.activeElement===input)continue;const v=get(path);if(type==='checkbox')input.checked=v;else input.value=String(v);if(type==='range'){paintRange(input);output.textContent=format(v)}}
-  if(document.activeElement!==mask){maskOn.checked=!!state.settings.reading.maskColor;mask.value=state.settings.reading.maskColor||'#181818'}
+  for(const [path,{input,output,type,format}]of controls){
+   if(document.activeElement===input)continue;
+   const value=get(path);
+   if(type==='checkbox')syncProperty(input,'checked',value);
+   else syncProperty(input,'value',String(value));
+   if(type==='range'){paintRange(input);syncProperty(output,'textContent',format(value))}
+  }
+  if(document.activeElement!==mask){
+   syncProperty(maskOn,'checked',!!state.settings.reading.maskColor);
+   syncProperty(mask,'value',state.settings.reading.maskColor||'#181818');
+  }
   const p=state.playback||{},rendering=state.rendering,powerSaving=state.settings.performance.powerSaving;
   const issue=state.error||(state.settings.wallpaper.selectedId?.startsWith('missing:')?'先前的桌布來源已失效，請在桌布庫選擇替代資源。':'');
   if(error.textContent!==issue)error.textContent=issue;
   for(const [region,badge]of materialStates){
    const enabled=state.settings.materials[region].enabled;
-   badge.dataset.enabled=String(enabled);badge.textContent=enabled?'已啟用':'原生';
+   syncAttribute(badge,'data-enabled',String(enabled));
+   syncProperty(badge,'textContent',enabled?'已啟用':'原生');
   }
   const scene=(state.cards||[]).find(c=>c.id===state.settings.wallpaper.selectedId)?.kind==='scene';
-  sceneControls.hidden=!scene;sceneFpsRow.hidden=state.settings.playback.sceneLive===false||powerSaving;controls.get('playback.sceneLive').input.disabled=powerSaving;
+  syncProperty(sceneControls,'hidden',!scene);
+  syncProperty(sceneFpsRow,'hidden',state.settings.playback.sceneLive===false||powerSaving);
+  syncProperty(controls.get('playback.sceneLive').input,'disabled',powerSaving);
   const {renderFps,displayFps}=state.settings.playback,linked=renderFps===displayFps&&[15,30,60].includes(renderFps);
-  sceneFpsCurrent.textContent=linked?'':`自訂上限 ${renderFps}／${displayFps} FPS`;
-  sceneFpsCurrent.hidden=linked;
-  for(const b of sceneFpsButtons)b.setAttribute('aria-pressed',String(linked&&Number(b.dataset.sceneFps)===renderFps));
-  controls.get('playback.renderFps').input.closest('label').hidden=scene;
-  sceneHint.textContent=p.state==='static'?({captured:'顯示最後一幀',cache:'顯示已儲存的靜態畫面',preview:'顯示桌布預覽圖',empty:'沒有可用的靜態圖片，顯示原生底色'}[p.staticSource]||'顯示靜態畫面'):powerSaving?'省電模式已關閉即時渲染':'';
-  sceneHint.hidden=!sceneHint.textContent;
+  syncProperty(sceneFpsCurrent,'textContent',linked?'':`自訂上限 ${renderFps}／${displayFps} FPS`);
+  syncProperty(sceneFpsCurrent,'hidden',linked);
+  for(const b of sceneFpsButtons)syncAttribute(b,'aria-pressed',String(linked&&Number(b.dataset.sceneFps)===renderFps));
+  syncProperty(controls.get('playback.renderFps').input.closest('label'),'hidden',scene);
+  const hint=p.state==='static'?({captured:'顯示最後一幀',cache:'顯示已儲存的靜態畫面',preview:'顯示桌布預覽圖',empty:'沒有可用的靜態圖片，顯示原生底色'}[p.staticSource]||'顯示靜態畫面'):powerSaving?'省電模式已關閉即時渲染':'';
+  syncProperty(sceneHint,'textContent',hint);
+  syncProperty(sceneHint,'hidden',!hint);
   renderOutputSize(state.settings);
-  controls.get('performance.rendererMode').input.disabled=rendering?.controlsAvailable!==true;controls.get('performance.cacheEnabled').input.disabled=rendering?.controlsAvailable!==true;cacheClear.disabled=rendering?.controlsAvailable!==true;
-  const backend={pool:'共用渲染',isolated:'獨立渲染',image:'靜態圖片'},output=rendering?.outputSize,parts=[backend[rendering?.backend]||'等待渲染'];if(output)parts.push(`目前輸出 ${output.width} × ${output.height}`);if(rendering?.renderSize?.limited)parts.push('已達尺寸上限');for(const [key,label]of [['renderFps','引擎'],['captureFps','擷取'],['decodedFps','畫面']])if(Number.isFinite(rendering?.[key]))parts.push(`${label} ${rendering[key]} FPS`);if(rendering?.fallbackReason)parts.push('共用渲染暫不可用，已使用獨立渲染');if(rendering?.recovery?.blocked)parts.push('自動恢復已停止，請按重新連線重試');else if(rendering?.healthy===false)parts.push('渲染器失聯，正在確認');rendererStatus.textContent=parts.join(' · ');
-  const cached=rendering?.cache,reasons={CACHE_DISABLED:'已關閉',CACHE_UNVERIFIED:'等待快取驗證',CACHE_VERIFYING:'正在驗證',CACHE_UNAVAILABLE:'快取暫不可用',CACHE_PRESSURE:'快取額度已滿',CACHE_NOT_APPLICABLE:'目前來源不使用貼圖快取',CACHE_RELOAD_REQUIRED:'下次載入時套用快取'};cacheStatus.textContent=cached?`${cached.effectiveCacheEnabled?'快取已啟用':reasons[cached.reason]||'快取未啟用'}${Number.isFinite(cached.usedBytes)&&Number.isFinite(cached.limitBytes)?` · ${(cached.usedBytes/1048576).toFixed(1)} / ${(cached.limitBytes/1048576).toFixed(0)} MiB`:''}${Number.isFinite(cached.readHits)?` · 儲存命中 ${cached.readHits} 次`:''}${Number.isFinite(rendering?.bake?.hits)?` · 本次載入命中 ${rendering.bake.hits}／未命中 ${rendering.bake.misses}`:''}`:'快取服務尚未連接';
-  launcher.dataset.enabled=String(state.settings.enabled);renderNow();renderCards();renderPresets();
+  const unavailable=rendering?.controlsAvailable!==true;
+  syncProperty(controls.get('performance.rendererMode').input,'disabled',unavailable);
+  syncProperty(controls.get('performance.cacheEnabled').input,'disabled',unavailable);
+  syncProperty(cacheClear,'disabled',unavailable);
+  const backend={pool:'共用渲染',isolated:'獨立渲染',image:'靜態圖片'},output=rendering?.outputSize,parts=[backend[rendering?.backend]||'等待渲染'];if(output)parts.push(`目前輸出 ${output.width} × ${output.height}`);if(rendering?.renderSize?.limited)parts.push('已達尺寸上限');for(const [key,label]of [['renderFps','引擎'],['captureFps','擷取'],['decodedFps','畫面']])if(Number.isFinite(rendering?.[key]))parts.push(`${label} ${rendering[key]} FPS`);if(rendering?.fallbackReason)parts.push('共用渲染暫不可用，已使用獨立渲染');if(rendering?.recovery?.blocked)parts.push('自動恢復已停止，請按重新連線重試');else if(rendering?.healthy===false)parts.push('渲染器失聯，正在確認');
+  syncProperty(rendererStatus,'textContent',parts.join(' · '));
+  const cached=rendering?.cache,reasons={CACHE_DISABLED:'已關閉',CACHE_UNVERIFIED:'等待快取驗證',CACHE_VERIFYING:'正在驗證',CACHE_UNAVAILABLE:'快取暫不可用',CACHE_PRESSURE:'快取額度已滿',CACHE_NOT_APPLICABLE:'目前來源不使用貼圖快取',CACHE_RELOAD_REQUIRED:'下次載入時套用快取'};
+  const cacheLabel=cached?`${cached.effectiveCacheEnabled?'快取已啟用':reasons[cached.reason]||'快取未啟用'}${Number.isFinite(cached.usedBytes)&&Number.isFinite(cached.limitBytes)?` · ${(cached.usedBytes/1048576).toFixed(1)} / ${(cached.limitBytes/1048576).toFixed(0)} MiB`:''}${Number.isFinite(cached.readHits)?` · 儲存命中 ${cached.readHits} 次`:''}${Number.isFinite(rendering?.bake?.hits)?` · 本次載入命中 ${rendering.bake.hits}／未命中 ${rendering.bake.misses}`:''}`:'快取服務尚未連接';
+  syncProperty(cacheStatus,'textContent',cacheLabel);
+  syncAttribute(launcher,'data-enabled',String(state.settings.enabled));
+  renderNow();renderCards();renderPresets();
  }
  function receive(reply){if(closed||reply.sessionId!==sessionId||reply.panelId!==panelId)return;const request=pending.get(reply.seq);if(!request)return;clearTimeout(request.timer);pending.delete(reply.seq);if(!request.quiet){if(reply.state)update(reply.state);if(!reply.ok)error.textContent=reply.error||'操作失敗';else if(reply.cancelled)status.textContent='已取消'}request.resolve(reply)}
  document.addEventListener('visibilitychange',pumpThumbnails);
