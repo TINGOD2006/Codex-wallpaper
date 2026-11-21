@@ -17,3 +17,13 @@ test('native request-card editors do not invalidate the composer contract and un
  assert.equal(probeAdapter({host,structure:{...shell,editorCount:3,auxiliaryEditorCount:1,requestEditorCount:1}}).ok,true);
  for(const extra of [{editorCount:3,requestEditorCount:1},{editorCount:2,requestEditorCount:0},{editorCount:3,composerEditorCount:2,requestEditorCount:1}])assert.equal(probeAdapter({host,structure:{...shell,...extra}}).ok,false);
 });
+test('a missing composer is pending only in a known shell without unclassified editors',()=>{
+ const pending={...shell,composerBodyCount:0,composerEditorCount:0,editorCount:1,requestEditorCount:1};
+ const result=probeAdapter({host,structure:pending});
+ assert.equal(result.ok,false);
+ assert.equal(result.composerPending,true);
+ assert.deepEqual(result.requiredChecks.filter(c=>!c.passed).map(c=>c.id),['composer','editors']);
+ for(const extra of [{editorCount:2},{frameCount:2},{mode:null},{composerBodyCount:2}]){
+  assert.equal(probeAdapter({host,structure:{...pending,...extra}}).composerPending,false);
+ }
+});

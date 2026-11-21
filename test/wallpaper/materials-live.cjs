@@ -77,6 +77,42 @@ const fs=require('node:fs/promises'),{createRendererService}=require('../../src/
   controller=new WallpaperController({store,library:{get:id=>id===entry.id?entry:null},host,prepareRenderer:(entry,playback,options)=>service.prepare(entry,playback,options),windowVisible:()=>visible});await controller.start();assert.equal(controller.error,null);await delay(1400);assert.equal((await host.confirmApplied(saved)).imageConfirmed,true);const loads=await host.imageMetrics();assert.ok(loads.loads>2);assert.equal(service.snapshot().healthy,true);
   await controller.patch({performance:{qualityMode:'low'}});assert.equal(controller.active.status.quality.jpeg,92);assert.equal(controller.settings.performance.qualityMode,'fixed');assert.equal((await host.confirmApplied(controller.settings)).imageConfirmed,true);
   const originalLease=controller.active;
+  const waitForLeaseState=async state=>{
+    const end=Date.now()+3000;
+    while(controller.active?.status.state!==state&&Date.now()<end)await delay(50);
+    assert.equal(controller.active?.status.state,state);
+  };
+  // React can retain a visible-size editor under an inactive page marker.
+  await client.evaluate(`(()=>{
+    const page=document.createElement('div');page.id='inactive-fixture';
+    page.setAttribute('data-app-shell-active-page','false');
+    page.append(document.createElement('textarea'));
+    document.querySelector('[data-app-shell-frame]').append(page);
+  })()`);
+  assert.equal((await controller.refreshHost()).structure.editorCount,1);
+  await client.evaluate(`(()=>{
+    document.getElementById('inactive-fixture').remove();
+    document.querySelector('[data-composer-body]').setAttribute('inert','');
+    const card=document.createElement('div');card.id='request-fixture';
+    card.setAttribute('data-codex-composer-request-navigation','');
+    card.innerHTML='<div data-request-input-other-row><div data-rich-text-layout><div role="textbox" contenteditable="true">fixture</div></div></div>';
+    document.querySelector('main').append(card);
+  })()`);
+  await assert.rejects(controller.refreshHost(),{code:'HOST_SHELL_PENDING'});
+  await waitForLeaseState('paused');
+  await delay(200);
+  const held=(await host.imageMetrics()).loads;
+  await delay(300);
+  assert.equal((await host.imageMetrics()).loads,held);
+  assert.equal(controller.active,originalLease);
+  await client.evaluate(`document.getElementById('request-fixture').remove();document.querySelector('[data-composer-body]').removeAttribute('inert')`);
+  assert.equal((await controller.refreshHost()).proof.stylesConfirmed,true);
+  await waitForLeaseState('ready');
+  assert.equal(controller.active,originalLease);
+  const resumeDeadline=Date.now()+3000;
+  while((await host.imageMetrics()).loads<=held&&Date.now()<resumeDeadline)await delay(50);
+  assert.ok((await host.imageMetrics()).loads>held);
+  assert.equal(await client.evaluate('document.querySelector("textarea").value'),'unsent fixture');
   await client.evaluate(`document.getElementById('codex-wallpaper-layer').remove()`);
   const repaired=await controller.refreshHost();assert.equal(repaired.proof.imageConfirmed,true);assert.equal(controller.active,originalLease);
   await client.evaluate(`document.getElementById('codex-wallpaper-image').remove()`);

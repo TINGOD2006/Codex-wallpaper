@@ -1,7 +1,8 @@
 const {structureExpression,desktopContractExpression,detectLayout,contractChecks}=require('../adapters.cjs');
 const {buildWallpaperStyles}=require('./styles.cjs');
 const OWNER='codex-wallpaper';
-function layoutError(layout){const failed=layout.requiredChecks.filter(c=>!c.passed);return Object.assign(new Error(layout.reason),{code:failed.length===1&&failed[0].id==='mode'?'HOST_SHELL_PENDING':'ADAPTER_LAYOUT_MISMATCH',stage:'probe',checks:layout.requiredChecks})}
+const COMPOSER_GRACE_MS=12000;
+function layoutError(layout,pendingComposer=false){const failed=layout.requiredChecks.filter(c=>!c.passed);return Object.assign(new Error(layout.reason),{code:pendingComposer||failed.length===1&&failed[0].id==='mode'?'HOST_SHELL_PENDING':'ADAPTER_LAYOUT_MISMATCH',stage:'probe',checks:layout.requiredChecks})}
 function canShowFallback(snapshot){
   return !!snapshot?.documentToken&&snapshot.rootViewportCount===0&&snapshot.frameCount===1&&snapshot.activeMainSurfaceCount===1;
 }
@@ -57,8 +58,21 @@ function updateFrame(image,uri,leaseId){
 const mountedPaintExpression=`(()=>{const updateFrame=${updateFrame.toString()};return (${paintMountedFrame.toString()})(`;
 const paintTransactions=`const getOwned=${getOwned.toString()},setStyle=${setStyle.toString()},canShowFallback=${canShowFallback.toString()},bindFrameMetrics=${bindFrameMetrics.toString()},updateFrame=${updateFrame.toString()};`;
 class WallpaperHost {
-  constructor(protocol,appVersion){this.client=protocol;this.appVersion=appVersion;}
+  constructor(protocol,appVersion,{now=()=>performance.now()}={}){this.client=protocol;this.appVersion=appVersion;this.now=now;this.composerPendingSince=null;}
   supportsDecodedPaint=true;
+  checkLayout(snapshot){
+    const layout=detectLayout(snapshot,this.appVersion);
+    if(layout.ok||!layout.composerPending||!this.documentToken||snapshot.documentToken!==this.documentToken){
+      this.composerPendingSince=null;
+      if(!layout.ok)throw layoutError(layout);
+      return layout;
+    }
+    // The same verified shell can temporarily unmount its composer. Wait
+    // without repairing DOM or relaunching the renderer during that window.
+    const now=this.now();
+    this.composerPendingSince??=now;
+    throw layoutError(layout,now-this.composerPendingSince<COMPOSER_GRACE_MS);
+  }
   async inspect(){return this.client.evaluate(`(()=>{const s=${structureExpression};return {...s,documentToken:String(performance.timeOrigin)}})()`)}
   async viewport(){return this.client.evaluate(`(()=>{const frames=document.querySelectorAll('[data-app-shell-frame="true"]');if(frames.length!==1)return null;const box=frames[0].getBoundingClientRect();return {cssWidth:box.width,cssHeight:box.height,dpr:devicePixelRatio,visible:document.visibilityState!=='hidden'&&box.width>0&&box.height>0,documentToken:String(performance.timeOrigin)}})()`)}
   async synchronize(settings,{includeDiagnostics=true}={}){
@@ -91,15 +105,14 @@ class WallpaperHost {
         imageMissing:!image||imageFailed,proof:{stylesConfirmed:true,imageConfirmed:decoded},
         metrics:image?.dataset.cwMetricsVersion==='1'?{documentToken:structure.documentToken,leaseId:image.dataset.cwLeaseId||null,loads:Number(image.dataset.cwLoads||0),at:performance.now(),outputSize:image.complete&&image.naturalWidth>0?{width:image.naturalWidth,height:image.naturalHeight}:null}:null};
     })()`);
-    const layout=detectLayout(result.structure,this.appVersion);
-    if(!layout.ok)throw layoutError(layout);
+    this.checkLayout(result.structure);
     this.documentToken=result.structure.documentToken;
     return result;
   }
   async apply(settings){
-    const snapshot=await this.inspect(),layout=detectLayout(snapshot,this.appVersion);
-    if(layout.kind==='unsupported'){
-      const error=layoutError(layout);
+    const snapshot=await this.inspect();
+    let layout;
+    try{layout=this.checkLayout(snapshot)}catch(error){
       if(error.code!=='HOST_SHELL_PENDING'&&!canShowFallback(snapshot))await this.restoreAll();
       throw error;
     }
@@ -194,7 +207,7 @@ class WallpaperHost {
     })()`);
   }
   async confirmApplied(settings){
-    const snapshot=await this.inspect(),layout=detectLayout(snapshot,this.appVersion);if(!layout.ok)throw layoutError(layout);
+    const snapshot=await this.inspect(),layout=this.checkLayout(snapshot);
     const styles=buildWallpaperStyles(settings,layout);
     return this.client.evaluate(`(()=>{const styles=${JSON.stringify(styles)},stylesConfirmed=Object.entries(styles).every(([name,text])=>{const n=document.getElementById('codex-wallpaper-'+name);return text?n?.dataset.owner==='${OWNER}'&&n.textContent===text:!n});const layer=document.getElementById('codex-wallpaper-layer'),i=document.getElementById('codex-wallpaper-image');return {stylesConfirmed,imageConfirmed:!!(layer?.dataset.owner==='${OWNER}'&&i&&i.complete&&i.naturalWidth>0&&i.currentSrc===i.getAttribute('src'))}})()`);
   }

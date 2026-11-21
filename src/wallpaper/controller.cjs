@@ -7,10 +7,11 @@ class WallpaperController {
   constructor({store,library,host,prepareRenderer,windowVisible=()=>true,hostResponsive=()=>true}){
     Object.assign(this,{store,library,host,prepareRenderer,windowVisible,hostResponsive});this.settings=defaults();this.desired=defaults();this.playback={state:'off',selectedId:null,pendingId:null};
     this.revision=0;this.tail=Promise.resolve();this.loading=new Set();this.closed=false;this.active=null;this.activeKey=null;this.activeRequestKey=null;this.dirty=false;this.error=null;this.lastSwitch=Date.now();this.idleSince=0;this.retryInitialRenderer=false;
-    this.latestViewport=null;this.renderEpoch=0;this.pendingUserRequests=0;this.userJobs=new Set();this.resizePending=false;this.windowMoving=false;
+    this.latestViewport=null;this.renderEpoch=0;this.pendingUserRequests=0;this.userJobs=new Set();this.resizePending=false;this.windowMoving=false;this.layoutPending=false;
   }
   snapshot(){return structuredClone({settings:this.settings,playback:this.playback,dirty:this.dirty,error:this.error,failure:this.failure||null,revision:this.revision})}
-  outputSuspended(settings=this.settings){return this.windowMoving||!this.hostResponsive()||settings.playback.pauseWhenHidden&&!this.windowVisible()}
+  get viewportDeferred(){return this.windowMoving||this.layoutPending}
+  outputSuspended(settings=this.settings){return this.viewportDeferred||!this.hostResponsive()||settings.playback.pauseWhenHidden&&!this.windowVisible()}
   async start({placeholder}={}){
     this.settings=await this.store.load();this.desired=structuredClone(this.settings);
     if(placeholder&&placeholder.selectedId===this.settings.wallpaper.selectedId&&this.settings.enabled&&this.settings.wallpaper.enabled){
@@ -31,7 +32,7 @@ class WallpaperController {
     if(this.closed)return Promise.reject(new Error('Wallpaper controller is closed'));
     if(!this.hostResponsive())return Promise.reject(hostUnresponsive());
     this.pendingUserRequests++;this.renderEpoch++;if(this.resizeJob){this.resizeAbort?.abort();this.resizePending=true}
-    const job=this.requestSettings(value,options).finally(()=>{this.pendingUserRequests--;if(!this.pendingUserRequests&&this.resizePending&&!this.resizeTimer&&!this.windowMoving)queueMicrotask(()=>this.flushViewport().catch(()=>{}))});this.userJobs.add(job);job.then(()=>this.userJobs.delete(job),()=>this.userJobs.delete(job));return job;
+    const job=this.requestSettings(value,options).finally(()=>{this.pendingUserRequests--;if(!this.pendingUserRequests&&this.resizePending&&!this.resizeTimer&&!this.viewportDeferred)queueMicrotask(()=>this.flushViewport().catch(()=>{}))});this.userJobs.add(job);job.then(()=>this.userJobs.delete(job),()=>this.userJobs.delete(job));return job;
   }
   renderPlayback(settings){return resolvePlayback(settings,this.latestViewport)}
   rendererKey(entry,settings,playback){return entry?entry.id+':'+playback.width+'x'+playback.height+':'+JSON.stringify(settings.performance)+':'+(entry.kind==='scene'?settings.playback.sceneLive:'media'):null}
@@ -70,7 +71,7 @@ class WallpaperController {
           }else{await this.host.clearBackground();this.paintedFrame=null;this.paintedRenderer=null;await old?.pause().catch(()=>{})}
         }catch(e){
           this.active=old;this.activeKey=oldKey;this.activeRequestKey=oldRequestKey;
-          if(this.hostResponsive())try{if(previous.enabled)await this.host.apply(previous);else await this.host.restoreAll();if(old&&previous.enabled&&previous.wallpaper.enabled){const restored=oldFrame||await old.frame();if(await this.paintConfirmed(restored,old)){this.paintedFrame=restored;this.paintedRenderer=old}}}catch{}
+          if(this.hostResponsive()&&e.code!=='HOST_SHELL_PENDING')try{if(previous.enabled)await this.host.apply(previous);else await this.host.restoreAll();if(old&&previous.enabled&&previous.wallpaper.enabled){const restored=oldFrame||await old.frame();if(await this.paintConfirmed(restored,old)){this.paintedFrame=restored;this.paintedRenderer=old}}}catch{}
           throw e;
         }
         if(created||previous.playback.renderFps!==next.playback.renderFps||previous.playback.displayFps!==next.playback.displayFps||previous.playback.paused!==next.playback.paused){this.samples=[];this.nextDisplayAt=0}
@@ -83,7 +84,8 @@ class WallpaperController {
     }catch(e){
       if(created&&candidate!==this.active)await (candidate.rollback?candidate.rollback():candidate.close()).catch(()=>{});
       if(revision!==this.revision||this.closed)return this.snapshot();
-      if(!this.hostResponsive()||e.code==='HOST_UNRESPONSIVE'){
+      if(!this.hostResponsive()||e.code==='HOST_UNRESPONSIVE'||e.code==='HOST_SHELL_PENDING'){
+        if(e.code==='HOST_SHELL_PENDING')this.setLayoutPending(true);
         this.desired=structuredClone(this.settings);this.retryInitialRenderer=this.active?.status.preview===true;
         this.playback={...this.playback,state:'paused',suspended:true,pendingId:null};
         throw e;
@@ -106,7 +108,15 @@ class WallpaperController {
   setWindowMoving(moving){
     if(this.closed||moving===this.windowMoving)return;
     this.windowMoving=moving;
-    if(moving){
+    this.updateViewportSchedule();
+  }
+  setLayoutPending(pending){
+    if(this.closed||pending===this.layoutPending)return;
+    this.layoutPending=pending;
+    this.updateViewportSchedule();
+  }
+  updateViewportSchedule(){
+    if(this.viewportDeferred){
       clearTimeout(this.resizeTimer);
       this.resizeTimer=null;
       if(this.resizeJob){this.resizePending=true;this.resizeAbort?.abort()}
@@ -131,18 +141,18 @@ class WallpaperController {
     }
     this.resizePending=true;
     if(this.resizeJob)this.resizeAbort?.abort();
-    if(!this.windowMoving)this.scheduleViewport();
+    if(!this.viewportDeferred)this.scheduleViewport();
   }
   async flushViewport(){
-    clearTimeout(this.resizeTimer);this.resizeTimer=null;if(this.closed||this.windowMoving||this.pendingUserRequests||this.resizeJob||!this.resizePending)return;
+    clearTimeout(this.resizeTimer);this.resizeTimer=null;if(this.closed||this.viewportDeferred||this.pendingUserRequests||this.resizeJob||!this.resizePending)return;
     this.resizePending=false;const epoch=++this.renderEpoch;this.resizeAbort=new AbortController();const job=this.replaceForViewport(epoch,this.resizeAbort.signal);this.resizeJob=job;
-    try{await job}finally{if(this.resizeJob===job)this.resizeJob=null;if(!this.closed&&!this.windowMoving&&!this.pendingUserRequests&&!this.resizeTimer&&this.resizePending)queueMicrotask(()=>this.flushViewport().catch(()=>{}))}
+    try{await job}finally{if(this.resizeJob===job)this.resizeJob=null;if(!this.closed&&!this.viewportDeferred&&!this.pendingUserRequests&&!this.resizeTimer&&this.resizePending)queueMicrotask(()=>this.flushViewport().catch(()=>{}))}
   }
   async replaceForViewport(epoch,signal){
     const settings=this.settings,revision=this.revision;if(this.active?.status?.still||settings.performance.resolutionMode!=='window'||!settings.enabled||!settings.wallpaper.enabled||!settings.wallpaper.selectedId)return;
     const entry=this.library.get(settings.wallpaper.selectedId);if(entry?.capability!=='supported')return;const output=this.renderPlayback(settings),key=this.rendererKey(entry,settings,output.playback);if(this.active&&key===this.activeRequestKey)return;
     const old=this.active,oldFrame=this.paintedRenderer===old?this.paintedFrame:null;let candidate;
-    const current=()=>!this.closed&&!this.windowMoving&&!signal.aborted&&epoch===this.renderEpoch&&revision===this.revision&&!this.pendingUserRequests&&this.hostResponsive();
+    const current=()=>!this.closed&&!this.viewportDeferred&&!signal.aborted&&epoch===this.renderEpoch&&revision===this.revision&&!this.pendingUserRequests&&this.hostResponsive();
     try{
       await this.commit(async()=>{if(current())await old?.pause()});if(!current())return;
       const job=this.prepareRenderer(entry,output.playback,{signal,performance:settings.performance});this.loading.add(job);job.then(()=>this.loading.delete(job),()=>this.loading.delete(job));candidate=await job;
@@ -159,13 +169,13 @@ class WallpaperController {
           await candidate.promote?.();this.active=candidate;this.activeRequestKey=key;this.activeKey=key+':'+(candidate.entryFingerprint||'')+':'+(candidate.status.backend||'');this.renderSize=output.size;this.paintedFrame=frame;this.paintedRenderer=candidate;
           if(old&&old!==candidate)await old.close();
         }catch(error){
-          if(!this.windowMoving&&this.hostResponsive()&&this.active===old&&oldFrame){await this.host.apply(this.settings);await this.paintConfirmed(oldFrame,old)}
+          if(!this.viewportDeferred&&this.hostResponsive()&&this.active===old&&oldFrame){await this.host.apply(this.settings);await this.paintConfirmed(oldFrame,old)}
           throw error;
         }
       });
     }catch(error){if(candidate&&candidate!==this.active)await candidate.close().catch(()=>{});if(current()){await this.commit(async()=>{if(current()&&old===this.active&&!settings.playback.paused&&!this.outputSuspended(settings))await old?.resume()});this.error='視窗尺寸調整失敗，已保留原畫面'}}
   }
-  async whenIdle(){while(!this.closed&&(this.pendingUserRequests||this.resizeJob||!this.windowMoving&&(this.resizePending||this.resizeTimer))){if(this.resizePending&&!this.windowMoving&&!this.pendingUserRequests&&!this.resizeJob)await this.flushViewport();await Promise.allSettled([...this.userJobs,...(this.resizeJob?[this.resizeJob]:[])])}await this.tail}
+  async whenIdle(){while(!this.closed&&(this.pendingUserRequests||this.resizeJob||!this.viewportDeferred&&(this.resizePending||this.resizeTimer))){if(this.resizePending&&!this.viewportDeferred&&!this.pendingUserRequests&&!this.resizeJob)await this.flushViewport();await Promise.allSettled([...this.userJobs,...(this.resizeJob?[this.resizeJob]:[])])}await this.tail}
   async tick(now=Date.now()){
     // A failed output stays paused until an explicit settings/retry request.
     // Resuming it every timer tick can repeatedly hit an unresponsive host.
@@ -226,7 +236,14 @@ class WallpaperController {
   refreshHost({imageMissing=false}={}){return this.commit(async()=>{
     const canRefresh=()=>!this.closed&&!this.windowMoving&&this.hostResponsive();
     if(!canRefresh())return;
-    const sample=this.host.synchronize?await this.host.synchronize(this.settings,{includeDiagnostics:false}):null;
+    let sample;
+    try{
+      sample=this.host.synchronize?await this.host.synchronize(this.settings,{includeDiagnostics:false}):null;
+    }catch(error){
+      if(error.code==='HOST_SHELL_PENDING')this.setLayoutPending(true);
+      throw error;
+    }
+    this.setLayoutPending(false);
     if(!canRefresh())return;
     if(!this.settings.enabled){if(!sample)await this.host.restoreAll();return sample}
     if(!sample)await this.host.apply(this.settings);

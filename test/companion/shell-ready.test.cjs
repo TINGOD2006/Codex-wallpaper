@@ -26,6 +26,15 @@ test('a slow mode menu can become ready after the former startup deadline',async
 test('a persistently missing mode remains pending without accepting the shell',async()=>{
  let samples=0;await assert.rejects(waitForReadyAdapter({inspect:async()=>{samples++;return {...ready,mode:null}},appVersion:'99.1',sleep:async()=>{}}),e=>e.code==='HOST_SHELL_PENDING');assert.equal(samples,32);
 });
+test('the composer may remount after a slow shell transition without accepting a partial layout',async()=>{
+ let samples=0;
+ const pending={...ready,composerBodyCount:0,composerEditorCount:0,editorCount:0};
+ const adapter=await waitForReadyAdapter({inspect:async()=>++samples<12?pending:ready,appVersion:'99.1',sleep:async()=>{}});
+ assert.equal(adapter.ok,true);assert.equal(samples,13);
+ samples=0;
+ await assert.rejects(waitForReadyAdapter({inspect:async()=>{samples++;return pending},appVersion:'99.1',sleep:async()=>{}}),{code:'ADAPTER_LAYOUT_MISMATCH'});
+ assert.equal(samples,32);
+});
 test('one verified host can show its own cached image through failed attachment attempts',{timeout:20000},async()=>{
  const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
  const {defaults}=require('../../src/wallpaper/schema.cjs'),{createSupervisor}=require('../../src/companion/supervisor.cjs');

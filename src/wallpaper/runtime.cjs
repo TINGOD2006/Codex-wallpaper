@@ -33,7 +33,7 @@ async function createWallpaperRuntime({client,identity,projectRoot,dataRoot=path
  },windowVisible,hostResponsive}),presets=services?.presets||createPresets({dataRoot,store,library}),panel=mountPanel?new Panel(client,{sessionId:identity.sessionId,appVersion:identity.appVersion}):null;
  const view=()=>services?.appearance?services.appearance.view():Promise.resolve({...controller.snapshot(),cards:library.cards(controller.settings),presets:[]});
  let viewportJob;
- const measureViewport=()=>{if(!host.viewport||controller.windowMoving||!hostResponsive())return Promise.resolve();if(viewportJob)return viewportJob;const job=host.viewport().then(value=>controller.setViewport(value));viewportJob=job;job.then(()=>{if(viewportJob===job)viewportJob=null},()=>{if(viewportJob===job)viewportJob=null});return job};
+ const measureViewport=()=>{if(!host.viewport||controller.viewportDeferred||!hostResponsive())return Promise.resolve();if(viewportJob)return viewportJob;const job=host.viewport().then(value=>controller.setViewport(value));viewportJob=job;job.then(()=>{if(viewportJob===job)viewportJob=null},()=>{if(viewportJob===job)viewportJob=null});return job};
  const resized=event=>{if(event.method==='Page.frameResized'&&(!windowVisible||windowVisible()))measureViewport().catch(()=>{})};
  const stopMotion=onWindowMotion?.(moving=>{
   controller.setWindowMoving(moving);

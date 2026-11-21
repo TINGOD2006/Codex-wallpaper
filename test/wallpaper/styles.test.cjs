@@ -41,3 +41,24 @@ test('native button and classified editor changes preserve wallpaper while unsaf
   for(const patch of [{editorCount:2},{frameCount:2},{composerEditorCount:2,editorCount:2},{mode:'chatgpt'}])await assert.rejects(()=>applyChanged(patch),e=>e.code==='LAYOUT_CHANGED');
   await assert.rejects(()=>applyChanged({},456),e=>e.code==='LAYOUT_CHANGED');
 });
+
+test('composer grace is bounded, confined to the verified document and resets after recovery',async()=>{
+ const initial={rootViewportCount:0,activeMainSurfaceCount:1,frameCount:1,composerBodyCount:1,editorCount:1,composerEditorCount:1,mode:'codex',documentToken:'123'};
+ const pending={...initial,composerBodyCount:0,composerEditorCount:0,editorCount:0};
+ let now=0,snapshot=pending;
+ const host=new WallpaperHost({evaluate:async()=>({structure:snapshot})},'26.1111.9664.0',{now:()=>now});
+ host.documentToken=initial.documentToken;
+ await assert.rejects(host.synchronize(defaults()),{code:'HOST_SHELL_PENDING'});
+ now=11999;
+ await assert.rejects(host.synchronize(defaults()),{code:'HOST_SHELL_PENDING'});
+ now=12000;
+ await assert.rejects(host.synchronize(defaults()),{code:'ADAPTER_LAYOUT_MISMATCH'});
+ snapshot=initial;
+ assert.equal((await host.synchronize(defaults())).structure,initial);
+ snapshot=pending;
+ await assert.rejects(host.synchronize(defaults()),{code:'HOST_SHELL_PENDING'});
+ snapshot={...pending,documentToken:'new-window'};
+ await assert.rejects(host.synchronize(defaults()),{code:'ADAPTER_LAYOUT_MISMATCH'});
+ snapshot={...pending,editorCount:1};
+ await assert.rejects(host.synchronize(defaults()),{code:'ADAPTER_LAYOUT_MISMATCH'});
+});

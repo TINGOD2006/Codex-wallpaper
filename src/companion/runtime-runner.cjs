@@ -9,7 +9,7 @@ const {preloadSceneStill,validFrame}=require('../wallpaper/scene-still.cjs');
 async function waitForReadyAdapter({inspect,appVersion,signal,onSample,sleep=abortableDelay}){
  let previous=null,last;
  for(const [index,wait] of [0,150,300,600,1000,1500,1500,...Array(25).fill(1000)].entries()){
-  if(index>=7&&last&&!last.ok&&last.requiredChecks.some(c=>!c.passed&&c.id!=='mode'))break;
+  if(index>=7&&last&&!last.ok&&!last.composerPending&&last.requiredChecks.some(c=>!c.passed&&c.id!=='mode'))break;
   if(wait)await sleep(wait,signal);signal?.throwIfAborted();
   const snapshot=await inspect();last=probeAdapter({host:{kind:'codex-desktop',appVersion},structure:snapshot});
   if(onSample)await onSample(snapshot,last);

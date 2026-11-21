@@ -13,8 +13,11 @@ function sampleShell(regions,includeDiagnostics){
   const result=rect.width>0&&rect.height>0&&element.checkVisibility({checkOpacity:true,checkVisibilityCSS:true});
   visibility.set(element,result);return result;
  };
- const count=selector=>{
-  let total=0;for(const element of document.querySelectorAll(selector))if(visible(element))total++;
+ // Native tabs can retain an inactive editor in the DOM, even during a
+ // transition where it still has a nonzero rectangle.
+ const activeEditor=element=>!element.closest('[inert],[data-app-shell-active-page="false"]')&&visible(element);
+ const count=(selector,include=visible)=>{
+  let total=0;for(const element of document.querySelectorAll(selector))if(include(element))total++;
   return total;
  };
  let mode=null;
@@ -26,13 +29,13 @@ function sampleShell(regions,includeDiagnostics){
  }
  return {
   rootViewportCount:count('#root > .zoom-adjusted-viewport:not(.pointer-events-none)'),
-  editorCount:count('textarea,[contenteditable="true"]'),
-  composerEditorCount:count('[data-app-shell-active-page="true"] [data-composer-body] textarea,[data-app-shell-active-page="true"] [data-composer-body] [contenteditable="true"]'),
-  auxiliaryEditorCount:count('[data-editor-search-surface="true"] .cm-editor .cm-content[contenteditable="true"][role="textbox"]'),
-  requestEditorCount:count('[data-app-shell-active-page="true"] [data-codex-composer-request-navigation] [data-request-input-other-row] [data-rich-text-layout] [contenteditable="true"][role="textbox"]'),
+  editorCount:count('textarea,[contenteditable="true"]',activeEditor),
+  composerEditorCount:count('[data-app-shell-active-page="true"] [data-composer-body] textarea,[data-app-shell-active-page="true"] [data-composer-body] [contenteditable="true"]',activeEditor),
+  auxiliaryEditorCount:count('[data-editor-search-surface="true"] .cm-editor .cm-content[contenteditable="true"][role="textbox"]',activeEditor),
+  requestEditorCount:count('[data-app-shell-active-page="true"] [data-codex-composer-request-navigation] [data-request-input-other-row] [data-rich-text-layout] [contenteditable="true"][role="textbox"]',activeEditor),
   activeMainSurfaceCount:count('[data-app-shell-active-page="true"] main[data-app-shell-main-surface="default"]'),
   frameCount:count('[data-app-shell-frame="true"]'),
-  composerBodyCount:count('[data-app-shell-active-page="true"] [data-composer-body]'),
+  composerBodyCount:count('[data-app-shell-active-page="true"] [data-composer-body]',activeEditor),
   mode,
   ...(includeDiagnostics?{
    loginSurfaceCount:count('#root .flex.h-full.w-full.bg-surface'),
@@ -44,11 +47,19 @@ function sampleShell(regions,includeDiagnostics){
 const structureExpression=`(${sampleShell.toString()})(${JSON.stringify(MATERIAL_REGIONS)},true)`;
 const desktopContractExpression=`(${sampleShell.toString()})(null,false)`;
 function contractChecks(s){const composer=s?.composerEditorCount??1,auxiliary=s?.auxiliaryEditorCount??0,requests=s?.requestEditorCount??0;return [{id:'desktop-root',passed:s?.rootViewportCount===0},{id:'unique-frame',passed:s?.frameCount===1},{id:'active-main',passed:s?.activeMainSurfaceCount===1},{id:'composer',passed:s?.composerBodyCount===1&&(s.composerEditorCount===undefined||s.composerEditorCount===1)},{id:'mode',passed:['codex','chatgpt'].includes(s?.mode)},{id:'editors',passed:composer===1&&Number.isInteger(auxiliary)&&auxiliary>=0&&auxiliary<=1&&Number.isInteger(requests)&&requests>=0&&requests<=3&&s?.editorCount===composer+auxiliary+requests}]}
+function composerIsPending(s,checks){
+ if(s?.composerEditorCount!==0||![0,1].includes(s.composerBodyCount))return false;
+ const auxiliary=s.auxiliaryEditorCount??0,requests=s.requestEditorCount??0;
+ return Number.isInteger(auxiliary)&&auxiliary>=0&&auxiliary<=1&&
+  Number.isInteger(requests)&&requests>=0&&requests<=3&&
+  s.editorCount===auxiliary+requests&&
+  checks.every(check=>check.passed||check.id==='composer'||check.id==='editors');
+}
 function detectLayout(s,appVersion){
  const known=SUPPORTED_VERSIONS.includes(appVersion),requiredChecks=contractChecks(s),ok=requiredChecks.every(check=>check.passed);
- const base={ok,adapterId:'codex-shell',adapterVersion:'1.0.1',requiredChecks,compatibility:ok?(known?'validated':'structural'):'incompatible'};
+ const base={ok,adapterId:'codex-shell',adapterVersion:'1.0.2',requiredChecks,compatibility:ok?(known?'validated':'structural'):'incompatible'};
  if(known&&s?.rootViewportCount===1&&s.loginSurfaceCount===1&&s.editorCount===0&&[3,5].includes(s.buttonCount))return {...base,kind:'login',selectors:loginSelectors,reason:'Measured unauthenticated desktop layout'};
- if(!ok)return {...base,kind:'unsupported',reason:'Required desktop structure failed: '+requiredChecks.filter(check=>!check.passed).map(check=>check.id).join(', ')};
+ if(!ok)return {...base,kind:'unsupported',composerPending:composerIsPending(s,requiredChecks),reason:'Required desktop structure failed: '+requiredChecks.filter(check=>!check.passed).map(check=>check.id).join(', ')};
  const regions=Object.fromEntries(['chat','sidebar','composer','titlebar','panels','overlays'].map(key=>[key,{supported:true,reason:s.regions?.[key]===0?'not-mounted':null}]));
  return {...base,kind:s.mode,selectors:desktopSelectors,regions,reason:known?'Measured authenticated desktop shell':'Structurally compatible desktop shell; version not manually validated'};
 }
