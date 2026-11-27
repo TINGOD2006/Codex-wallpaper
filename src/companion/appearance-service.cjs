@@ -11,6 +11,7 @@ async function createAppearanceService({store,library,presets,chooseFile,rendere
   try{if(changed)await rendererService.configure(next);const result=await target[method](...args);await store.recordSwitchChange?.(current,result.settings,method).catch(()=>{});if(changed&&result.dirty&&result.error&&args[1]?.persist!==false)await rendererService.configure(before);return result}catch(error){if(changed)await rendererService.configure(before);throw error}
  });
  proxy.clearCache=()=>serial(async()=>{if(!rendererService)throw new Error('快取服務尚未連接');return rendererService.clearCache()});
+ proxy.retryPlayback=()=>serial(async()=>{if(!active)throw new Error('請先重新連線');return active.retryPlayback()});
  const rendering=settings=>{if(!rendererService)return null;const source=rendererService.snapshot();return sanitizeRendering({...source,controlsAvailable:true,renderSize:active?.renderSize,cache:{...source.cache,requestedCacheEnabled:(settings||proxy.snapshot().settings).performance.cacheEnabled}})};
  async function view(){const schemes=await presets.list(),snapshot=proxy.snapshot(),data={...snapshot,cards:library.cards(snapshot.settings),presets:schemes,rendering:rendering(snapshot.settings)};delete data.revision;const key=JSON.stringify(data);if(key!==lastView){lastView=key;viewRevision++}return {...data,revision:viewRevision}}
  return {

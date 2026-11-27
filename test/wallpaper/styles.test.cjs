@@ -16,6 +16,18 @@ test('material transparency and image filters cannot fade or blur chat text',()=
   assert.doesNotMatch(styles.materials,/(?:^|[;{])\s*(?:opacity|filter|transform)\s*:/);
   assert.match(styles.background,/#codex-wallpaper-image[^}]*filter:/);
 });
+test('global glass affects linked surfaces, while saved custom and native modes retain their behavior',()=>{
+  const legacy=defaults();delete legacy.materials.global;
+  for(const region of Object.values(legacy.materials))delete region.inherit;
+  Object.assign(legacy.materials.composer,{enabled:true,alpha:.59,blur:4});
+  const linked=mergeSettings(legacy,{materials:{global:{alpha:.31,blur:11},sidebar:{enabled:true,inherit:true}}});
+  assert.equal(linked.materials.composer.inherit,false);
+  assert.equal(linked.materials.chat.enabled,false);
+  const styles=buildWallpaperStyles(linked,layout).materials;
+  assert.match(styles,/blur\(4px\)/);
+  assert.match(styles,/blur\(11px\)/);
+  assert.doesNotMatch(buildWallpaperStyles(mergeSettings(linked,{materials:{sidebar:{enabled:false}}}),layout).materials,/blur\(11px\)/);
+});
 test('custom colors can be disabled independently and never override semantic diff colors',()=>{
   const settings=mergeSettings(defaults(),{colors:{enabled:true}}),styles=buildWallpaperStyles(settings,layout);
   assert.match(styles.colors,/--app-color-text-foreground:/);assert.doesNotMatch(styles.colors,/decoration-deleted|decoration-added|text-error/);
@@ -28,12 +40,12 @@ test('host rejects a stale document rather than claiming its styles were committ
 });
 
 test('native button and classified editor changes preserve wallpaper while unsafe structure changes are rejected',async()=>{
-  const vm=require('node:vm'),{structureExpression}=require('../../src/adapters.cjs');
+  const vm=require('node:vm'),{desktopContractExpression}=require('../../src/adapters.cjs');
   const initial={rootViewportCount:0,activeMainSurfaceCount:1,frameCount:1,composerBodyCount:1,editorCount:1,composerEditorCount:1,auxiliaryEditorCount:0,requestEditorCount:0,buttonCount:100,mode:'codex',regions:{overlays:0},documentToken:'123'};
   async function applyChanged(patch,timeOrigin=123){
     const nodes=new Map(),current={...initial,...patch};delete current.documentToken;
     const document={querySelectorAll:selector=>nodes.has(selector.slice(1))?[nodes.get(selector.slice(1))]:[],getElementById:id=>nodes.get(id),createElement:()=>({dataset:{},remove(){nodes.delete(this.id)}}),head:{append(node){nodes.set(node.id,node)}}};
-    const host=new WallpaperHost({evaluate:expression=>vm.runInNewContext(expression.replace(structureExpression,JSON.stringify(current)),{document,performance:{timeOrigin}})},'26.1027.3384.0');
+    const host=new WallpaperHost({evaluate:expression=>vm.runInNewContext(expression.replace(desktopContractExpression,JSON.stringify(current)),{document,performance:{timeOrigin}})},'26.1027.3384.0');
     host.inspect=async()=>initial;
     return host.apply(defaults());
   }

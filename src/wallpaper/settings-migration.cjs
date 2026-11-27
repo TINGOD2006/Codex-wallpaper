@@ -1,12 +1,12 @@
 const fs=require('node:fs/promises'),path=require('node:path'),{createHash}=require('node:crypto');
-const {atomicJson}=require('../config.cjs'),{upgradeSettings}=require('./schema.cjs');
+const {atomicJson}=require('../config.cjs'),{upgradeSettings,needsMaterialUpgrade}=require('./schema.cjs');
 const tails=new Map();
 function settingsLock(root,work){const key=path.resolve(root),previous=tails.get(key)||Promise.resolve(),next=previous.then(work);const tail=next.catch(()=>{});tails.set(key,tail);tail.finally(()=>{if(tails.get(key)===tail)tails.delete(key)});return next}
 async function readRawSettings(root){
  const file=path.join(root,'user-settings.json');try{const handle=await fs.open(file,'r');try{if((await handle.stat()).size>2*1024*1024)throw new Error('Settings exceed 2 MiB');const bytes=await handle.readFile();if(bytes.length>2*1024*1024)throw new Error('Settings exceed 2 MiB');return {bytes,raw:JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/,''))}}finally{await handle.close()}}catch(error){if(error.code==='ENOENT')return null;throw error}
 }
 async function backupLegacySettings(root,record){
- if(!record||!needsMigration(record.raw))return null;
+ if(!record||!needsMigration(record.raw)&&!needsMaterialUpgrade(record.raw))return null;
  upgradeSettings(record.raw); // Validate before creating a migration artifact.
  const hash=createHash('sha256').update(record.bytes).digest('hex'),folder=path.join(root,'migration/schema-v2'),file=path.join(folder,hash+'.json');
  await fs.mkdir(folder,{recursive:true});

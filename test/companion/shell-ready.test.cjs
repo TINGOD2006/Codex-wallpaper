@@ -11,20 +11,20 @@ test('background compatibility probes require two full proofs from the same docu
 test('cold React shell must pass two consecutive full contracts in one document',async()=>{
  let i=0;const states=[{...ready,mode:null},ready,{...ready,documentToken:'2'},{...ready,documentToken:'2'}],waits=[];
  const result=await waitForReadyAdapter({inspect:async()=>states[i++],appVersion:'99.1',sleep:async n=>waits.push(n)});
- assert.equal(result.ok,true);assert.equal(i,4);assert.deepEqual(waits,[150,300,600]);
+ assert.equal(result.ok,true);assert.equal(i,4);assert.deepEqual(waits,[150,150,150]);
 });
 test('shell readiness does not accept unsafe editors or wait forever',async()=>{
- let samples=0;await assert.rejects(waitForReadyAdapter({inspect:async()=>{samples++;return {...ready,editorCount:2}},appVersion:'99.1',sleep:async()=>{}}),e=>e.code==='ADAPTER_LAYOUT_MISMATCH'&&e.checks.some(c=>c.id==='editors'&&!c.passed));assert.equal(samples,7);
+ let samples=0,elapsed=0;await assert.rejects(waitForReadyAdapter({inspect:async()=>{samples++;return {...ready,editorCount:2}},appVersion:'99.1',sleep:async ms=>{elapsed+=ms}}),e=>e.code==='ADAPTER_LAYOUT_MISMATCH'&&e.checks.some(c=>c.id==='editors'&&!c.passed));assert.equal(samples,10);assert.equal(elapsed,5050);
 });
 test('shell readiness is cancelled before probing an abandoned connection',async()=>{
  const abort=new AbortController();abort.abort();await assert.rejects(waitForReadyAdapter({inspect:async()=>{throw new Error('must not inspect')},signal:abort.signal}),{name:'AbortError'});
 });
 test('a slow mode menu can become ready after the former startup deadline',async()=>{
- let samples=0;const adapter=await waitForReadyAdapter({inspect:async()=>({...ready,mode:++samples<12?null:'chatgpt'}),appVersion:'99.1',sleep:async()=>{}});
- assert.equal(adapter.ok,true);assert.equal(samples,13);
+ let samples=0,lastWait;const adapter=await waitForReadyAdapter({inspect:async()=>({...ready,mode:++samples<12?null:'chatgpt'}),appVersion:'99.1',sleep:async ms=>{lastWait=ms}});
+ assert.equal(adapter.ok,true);assert.equal(samples,13);assert.equal(lastWait,150);
 });
 test('a persistently missing mode remains pending without accepting the shell',async()=>{
- let samples=0;await assert.rejects(waitForReadyAdapter({inspect:async()=>{samples++;return {...ready,mode:null}},appVersion:'99.1',sleep:async()=>{}}),e=>e.code==='HOST_SHELL_PENDING');assert.equal(samples,32);
+ let samples=0;await assert.rejects(waitForReadyAdapter({inspect:async()=>{samples++;return {...ready,mode:null}},appVersion:'99.1',sleep:async()=>{}}),e=>e.code==='HOST_SHELL_PENDING');assert.equal(samples,35);
 });
 test('the composer may remount after a slow shell transition without accepting a partial layout',async()=>{
  let samples=0;
@@ -33,7 +33,7 @@ test('the composer may remount after a slow shell transition without accepting a
  assert.equal(adapter.ok,true);assert.equal(samples,13);
  samples=0;
  await assert.rejects(waitForReadyAdapter({inspect:async()=>{samples++;return pending},appVersion:'99.1',sleep:async()=>{}}),{code:'ADAPTER_LAYOUT_MISMATCH'});
- assert.equal(samples,32);
+ assert.equal(samples,35);
 });
 test('one verified host can show its own cached image through failed attachment attempts',{timeout:20000},async()=>{
  const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
@@ -43,14 +43,16 @@ test('one verified host can show its own cached image through failed attachment 
  const selectedId='same-wallpaper',settings=defaults();settings.wallpaper.selectedId=selectedId;
  await fs.writeFile(path.join(data,'last-wallpaper-frame.json'),JSON.stringify({selectedId,uri:cached}));
  const process={pid:1,startTime:'10',managed:true},host={id:'codex-desktop',kind:'codex-desktop',appVersion:'fixture',processes:[process]};
- let shell={...ready,frameCount:0},generation=0,open=false,transportReady=true,showCount=0,clears=0,renderCount=0,image=null;
+ let shell={...ready,frameCount:0},generation=0,open=false,transportReady=true,showCount=0,clears=0,renderCount=0,image=null,transientReject=true;
  const store={load:async()=>structuredClone(settings)},appearance={view:async()=>({settings}),controller:{snapshot:()=>({settings}),patch:async patch=>Object.assign(settings,patch)}};
  const connect=async()=>{
   if(!transportReady)throw Object.assign(Error('No new connection'),{code:'HOST_ENDPOINT_PENDING'});
   open=true;
   return {client:{get connected(){return open},close(){open=false},async evaluate(expression){
    if(expression.includes('const applyFallbackStyles=')){
-    assert.equal(shell.frameCount,1);assert.ok(expression.includes(cached));image=cached;showCount++;return true;
+    assert.equal(shell.frameCount,1);assert.ok(expression.includes(cached));
+    if(transientReject){transientReject=false;return false}
+    image=cached;showCount++;return true;
    }
    if(expression.includes('?.dataset.cwFallback')){clears++;image=null;return}
    return shell;

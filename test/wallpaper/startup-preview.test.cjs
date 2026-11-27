@@ -1,6 +1,17 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path');
 const {createWallpaperRuntime}=require('../../src/wallpaper/runtime.cjs'),{createStore}=require('../../src/wallpaper/store.cjs'),{defaults}=require('../../src/wallpaper/schema.cjs');
 const CACHED='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=';
+test('a newer media source invalidates a saved frame even when the wallpaper ID stays the same',async()=>{
+ const {preloadSceneStill,frameSource,saveStill}=require('../../src/wallpaper/scene-still.cjs');
+ const dataRoot=await fs.mkdtemp(path.join(os.tmpdir(),'cw-stale-poster-'));
+ const mediaPath=path.join(dataRoot,'scene.pkg'),entry={id:'same',kind:'scene',directory:dataRoot,mediaPath};
+ await fs.writeFile(mediaPath,'first');
+ const source=await frameSource(entry);
+ await saveStill({dataRoot,selectedId:entry.id,uri:CACHED,sourceVersion:source.version});
+ assert.equal((await preloadSceneStill({entry,dataRoot}))[0].source,'cache');
+ await fs.appendFile(mediaPath,'revised source');
+ assert.deepEqual(await preloadSceneStill({entry,dataRoot}),[]);
+});
 test('startup paints only a matching cached wallpaper before preparing the live renderer',async()=>{
  for(const match of [true,false]){
   const dataRoot=await fs.mkdtemp(path.join(os.tmpdir(),'cw-preview-')),store=createStore(dataRoot),s=defaults();s.wallpaper.selectedId='selected';await store.save(s);await fs.writeFile(path.join(dataRoot,'last-wallpaper-frame.json'),JSON.stringify({selectedId:match?'selected':'other',uri:CACHED}));const events=[];
@@ -37,4 +48,17 @@ test('preloaded candidates are decoded in authority order, fall back from corrup
  const {preloadSceneStill,resolveSceneStill}=require('../../src/wallpaper/scene-still.cjs'),root=await fs.mkdtemp(path.join(os.tmpdir(),'cw-preloaded-')),preview=path.join(root,'preview.png'),bad='data:image/jpeg;base64,YQ==';await fs.writeFile(preview,Buffer.from(CACHED.split(',')[1],'base64'));await fs.writeFile(path.join(root,'last-wallpaper-frame.json'),JSON.stringify({selectedId:'a',uri:bad}));
  const entry={id:'a',directory:root,previewPath:preview},preloaded={selectedId:'a',candidates:await preloadSceneStill({entry,dataRoot:root})};assert.deepEqual(preloaded.candidates.map(c=>c.source),['cache','preview']);await fs.unlink(preview);await fs.unlink(path.join(root,'last-wallpaper-frame.json'));const seen=[];
  const value=await resolveSceneStill({entry,dataRoot:root,preloaded,validate:async uri=>{seen.push(uri);if(uri===bad)throw Error('Bad cache')}});assert.equal(value.source,'preview');assert.deepEqual(seen,[bad,CACHED]);assert.equal((await resolveSceneStill({entry:{id:'b'},dataRoot:root,preloaded})).source,'empty');
+});
+test('a ready cache is available before accessing the optional preview file',async()=>{
+ const {prepareSceneStill,resolveSceneStill,saveStill}=require('../../src/wallpaper/scene-still.cjs');
+ const dataRoot=await fs.mkdtemp(path.join(os.tmpdir(),'cw-lazy-preview-'));
+ const previewPath=path.join(dataRoot,'preview.png'),bad='data:image/jpeg;base64,YQ==';
+ const entry={id:'a',directory:dataRoot,previewPath};
+ await saveStill({dataRoot,selectedId:entry.id,uri:bad});
+ const preloaded=prepareSceneStill({entry,dataRoot}),candidates=preloaded.candidates();
+ assert.deepEqual((await candidates.next()).value,{uri:bad,source:'cache'});
+ await candidates.return();
+ await fs.writeFile(previewPath,Buffer.from(CACHED.split(',')[1],'base64'));
+ const result=await resolveSceneStill({entry,dataRoot,preloaded,validate:async uri=>{if(uri===bad)throw Error('Corrupt cache')}});
+ assert.deepEqual(result,{uri:CACHED,source:'preview'});
 });

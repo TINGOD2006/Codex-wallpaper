@@ -102,7 +102,7 @@ test('changed playback or cancellation closes the candidate without handing it t
  }
 });
 
-test('scene preparation waits for the runtime in window-size, hidden and power-saving modes',async()=>{
+test('scene preparation waits for the runtime with no measured viewport, a hidden window or power saving',async()=>{
  for(const reason of ['window','hidden','powerSaving']){
   const settings=fixedSceneSettings();
   if(reason==='window')settings.performance.resolutionMode='window';
@@ -115,5 +115,36 @@ test('scene preparation waits for the runtime in window-size, hidden and power-s
    }
   });
   await (await runner.attach(session)).close();
+ }
+});
+
+test('window-sized scene preparation reuses only a matching document and output size',async()=>{
+ const viewport={cssWidth:1280,cssHeight:720,dpr:1.25,visible:true,documentToken:readyShell.documentToken};
+ for(const caseName of ['same','window resized','document changed']){
+  const settings=fixedSceneSettings();
+  settings.performance.resolutionMode='window';
+  let sample=0,prepares=0,closes=0;
+  const lease={pause:async()=>{},close:async()=>{closes++}};
+  const runner=startupFixture({settings,
+   inspect:async expression=>{
+    if(++sample===1){assert.match(expression,/sample\.viewport/);return {...readyShell,mode:null,viewport}}
+    return readyShell;
+   },
+   prepare:async(entry,playback)=>{
+    assert.equal(sample,1);
+    assert.deepEqual([playback.width,playback.height],[1600,900]);
+    prepares++;
+    return lease;
+   },
+   async createRuntime({services}){
+    const changed=caseName==='window resized'?{...viewport,cssWidth:900}:viewport;
+    const documentToken=caseName==='document changed'?'other-shell':viewport.documentToken;
+    assert.equal(await services.startupScene.take(scene,resolvePlayback(settings,changed).playback,{performance:settings.performance,documentToken}),caseName==='same'?lease:undefined);
+    return {controller:{settings},close:async()=>{if(caseName==='same')await lease.close()}};
+   }
+  });
+  await (await runner.attach(session)).close();
+  assert.equal(prepares,1);
+  assert.equal(closes,1);
  }
 });

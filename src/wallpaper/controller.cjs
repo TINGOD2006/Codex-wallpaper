@@ -16,7 +16,7 @@ class WallpaperController {
     this.settings=await this.store.load();this.desired=structuredClone(this.settings);
     if(placeholder&&placeholder.selectedId===this.settings.wallpaper.selectedId&&this.settings.enabled&&this.settings.wallpaper.enabled){
       this.active=require('./scene-still.cjs').createStillRenderer({...placeholder,preview:true});this.activeKey=this.activeRequestKey='startup-preview:'+placeholder.selectedId;this.paintedFrame=placeholder.uri;this.paintedRenderer=this.active;
-      this.playback={state:'loading',preview:true,staticSource:placeholder.source,selectedId:placeholder.selectedId,pendingId:placeholder.selectedId};
+      this.playback={state:'loading',preview:true,staticSource:placeholder.source,displayedSource:placeholder.source,selectedId:placeholder.selectedId,pendingId:placeholder.selectedId};
       this.initialRequest=this.request(this.settings).catch(()=>{});
     }else{try{await this.request(this.settings)}catch{}}
     this.loop=this.run();return this.snapshot();
@@ -75,9 +75,9 @@ class WallpaperController {
           throw e;
         }
         if(created||previous.playback.renderFps!==next.playback.renderFps||previous.playback.displayFps!==next.playback.displayFps||previous.playback.paused!==next.playback.paused){this.samples=[];this.nextDisplayAt=0}
-        this.settings=next;if(this.failure)this.error=null;this.failure=null;if(previous.wallpaper.selectedId!==next.wallpaper.selectedId)this.lastSwitch=Date.now();
+        this.settings=next;if(this.failure)this.error=null;this.failure=null;this.failedSettings=null;if(previous.wallpaper.selectedId!==next.wallpaper.selectedId)this.lastSwitch=Date.now();
         const suspended=!!(wants&&this.outputSuspended(next));
-        this.playback={state:wants?(candidate.status.still?'static':next.playback.paused||suspended?'paused':'playing'):'off',suspended,staticSource:candidate?.status.staticSource||null,selectedId:next.wallpaper.selectedId,pendingId:null};
+        this.playback={state:wants?(candidate.status.still?'static':next.playback.paused||suspended?'paused':'playing'):'off',suspended,staticSource:candidate?.status.staticSource||null,displayedSource:wants?(candidate.status.still?candidate.status.staticSource:entry.kind==='image'?'image':'live'):null,selectedId:next.wallpaper.selectedId,pendingId:null};
         if(created&&old&&old!==candidate)await old.close();
         if(persist)await this.persist();else this.dirty=true;return this.snapshot();
       });
@@ -93,10 +93,11 @@ class WallpaperController {
       if(pausedOld&&pausedOld===this.active&&this.settings.enabled&&this.settings.wallpaper.enabled&&!this.desired.playback.paused&&!this.outputSuspended())await this.commit(async()=>{if(revision===this.revision&&!this.closed&&pausedOld===this.active&&!this.outputSuspended())await pausedOld.resume()});
       if(revision!==this.revision||this.closed)return this.snapshot();
       if(this.settings.playback.paused!==this.desired.playback.paused){this.settings=mergeSettings(this.settings,{playback:{paused:this.desired.playback.paused}});this.dirty=true}
-      this.desired=structuredClone(this.settings);this.error=e.message;this.failure={retryBlocked:e.retryBlocked===true,retryManaged:e.retryManaged===true};this.playback={...this.playback,state:'error',pendingId:null,error:e.message};throw e;
+      this.desired=structuredClone(this.settings);this.failedSettings=next;this.error=e.message;this.failure={retryBlocked:e.retryBlocked===true,retryManaged:e.retryManaged===true};this.playback={...this.playback,state:'error',pendingId:null,error:e.message};throw e;
     }
   }
   patch(patch,options={}){const explicitRetry=options.explicitRetry??!!(patch.enabled===true||patch.performance?.powerSaving===false||patch.playback?.sceneLive===true||patch.wallpaper?.enabled===true||patch.wallpaper&&Object.hasOwn(patch.wallpaper,'selectedId'));return this.request(mergeSettings(this.desired,patch),{...options,explicitRetry})}
+  retryPlayback(){return this.request(this.failedSettings||this.settings,{explicitRetry:true,forceReload:true})}
   select(id,{explicitRetry=true}={}){return this.patch({wallpaper:{selectedId:id,enabled:true}},{forceReload:true,explicitRetry})}
   setPaused(value){return this.patch({playback:{paused:value}})}
   applyPreset(settings){return this.request({...settings,performance:structuredClone(this.desired.performance)})}

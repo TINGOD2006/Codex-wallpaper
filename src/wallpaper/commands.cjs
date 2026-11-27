@@ -25,6 +25,7 @@ function createCommandHandler({sessionId,panelId,controller,library,presets,choo
     if(action==='library.import')await library.importFile(picked.path);else if(action==='library.addRoot'){const roots=await library.addRoot(picked.path);await controller.patch({library:{roots}})}else await presets.importFile(picked.path);break;
    }
    case 'playback.pause':exact(p,['paused']);if(typeof p.paused!=='boolean')throw new Error('無效的暫停值');markSettings();await controller.setPaused(p.paused);break;
+   case 'playback.retry':exact(p,[]);markSettings();await controller.retryPlayback();break;
    case 'presets.save':exact(p,['name']);await presets.save(p.name,controller.snapshot().settings);break;
    case 'presets.apply':{exact(p,['id']);id(p.id);markSettings();const value=await presets.resolve(p.id);if(closed||settingsIntent!==sequence)return {superseded:true};await controller.applyPreset(value);break}
    case 'presets.rename':exact(p,['id','name']);id(p.id);await presets.rename(p.id,p.name);break;

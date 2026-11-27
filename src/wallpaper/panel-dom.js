@@ -299,20 +299,47 @@ function mountWallpaperPanel(options){
  const fullWindow=button('套用全視窗材質',()=>send('settings.patch',{patch:{materials:fullWindowMaterials}}),materialBar);
  fullWindow.className='cw-primary';fullWindow.disabled=!fullWindowMaterials;
  button('重設材質與配色',()=>send('reset.section',{section:'materials'}),materialBar);
+ function glassFields(parent,prefix,label){
+  field(parent,`${prefix}.alpha`,label+'底色濃度',{min:0,max:1,format:percent});
+  field(parent,`${prefix}.blur`,label+'玻璃模糊',{min:0,max:24,step:.5,format:pixels});
+  field(parent,`${prefix}.border`,label+'邊框強度',{min:0,max:.4,format:percent});
+ }
+ const globalGlass=disclosure(materials,'全域玻璃預設');
+ glassFields(globalGlass.content,'materials.global','全域');
+ const materialModes={native:'原生',inherit:'跟隨全域',custom:'自訂'};
  const materialStates=new Map();
  for(const [region,name]of [['chat','聊天區'],['sidebar','左側欄'],['composer','輸入框'],['titlebar','頂欄'],['panels','右側／編輯面板'],['overlays','設定／浮層']]){
   const {summary,content}=disclosure(materials,name),badge=el('small','原生',{class:'cw-disclosure-status'});
-  summary.append(badge);materialStates.set(region,badge);
-  field(content,`materials.${region}.enabled`,'啟用'+name+'玻璃',{type:'checkbox'});
-  field(content,`materials.${region}.alpha`,name+'底色濃度',{min:0,max:1,format:percent});
-  field(content,`materials.${region}.blur`,name+'玻璃模糊',{min:0,max:24,step:.5,format:pixels});
-  field(content,`materials.${region}.border`,name+'邊框強度',{min:0,max:.4,format:percent});
+  summary.append(badge);
+  const picker=el('select',null,{'aria-label':name+'玻璃模式','data-setting':`materials.${region}.mode`});
+  for(const [value,label]of Object.entries(materialModes))picker.append(el('option',label,{value}));
+  const row=el('label',null,{class:'cw-field'});row.append(el('span','玻璃模式'),picker);
+  const custom=el('div');custom.hidden=true;content.append(row,custom);glassFields(custom,`materials.${region}`,name);
+  materialStates.set(region,{badge,picker,custom});
+  picker.addEventListener('change',async()=>{
+   const mode=picker.value;
+   try{await runQuick(picker,'settings.patch',{patch:{materials:{[region]:{enabled:mode!=='native',inherit:mode==='inherit'}}}})}
+   finally{renderMaterialStates()}
+  });
+ }
+ function renderMaterialStates(){
+  if(!model)return;
+  for(const [region,{badge,picker,custom}]of materialStates){
+   const {enabled,inherit}=model.settings.materials[region];
+   const mode=enabled?(inherit?'inherit':'custom'):'native';
+   syncAttribute(badge,'data-enabled',String(enabled));
+   syncProperty(badge,'textContent',materialModes[mode]);
+   if(!picker.dataset.busy)syncProperty(picker,'value',mode);
+   syncProperty(custom,'hidden',mode!=='custom');
+  }
  }
  const colors=disclosure(materials,'自訂配色').content;
  field(colors,'colors.enabled','啟用自訂配色',{type:'checkbox'});
  for(const [key,name]of [['surface','主底色'],['panel','面板色'],['text','文字'],['muted','次要文字'],['accent','強調色'],['selection','選取底色']])field(colors,'colors.palette.'+key,name,{type:'color'});
  const playback=sections.playback;
  heading(playback,'播放控制');
+ const handoffStatus=el('p','',{class:'cw-muted'}),retryPlayback=button('重試即時載入',()=>runQuick(retryPlayback,'playback.retry',{}));
+ retryPlayback.hidden=true;playback.append(handoffStatus,retryPlayback);
  const bootAnimation=el('input',null,{type:'checkbox',role:'switch','aria-label':'開機動畫','data-setting':'bootAnimation.enabled'});
  let bootAnimationEnabled=true,savingBootAnimation=false;
  if(saveBootAnimation){
@@ -513,19 +540,24 @@ function mountWallpaperPanel(options){
   useThumbnail(nowPreview,current?.id||null,current?kindName(current):'桌布');
   const enabled=settings.enabled&&settings.wallpaper.enabled,paused=settings.playback.paused;
   const playable=playablePlaylist(model);
-  const playbackNames={off:'等待套用',loading:'載入中',playing:current?.kind==='image'?'顯示中':'播放中',paused:'已暫停',static:settings.performance.powerSaving?'靜態 · 省電':'靜態畫面',error:'播放錯誤'};
+  const playbackNames={off:'等待套用',loading:'正在預載',playing:current?.kind==='image'?'顯示中':'即時播放',paused:'已暫停',static:settings.performance.powerSaving?'靜態 · 省電':current?.kind==='scene'&&settings.playback.sceneLive===false?'靜態 · 即時已關閉':'靜態畫面',error:'播放錯誤'};
+  const hostFailure=hostState?.error?.code==='RENDERER_FAILED',renderFailed=p.state==='error'||hostFailure;
+  const retained=!!(hostState?.fallback?.source||p.displayedSource&&p.displayedSource!=='empty');
   let message;
   if(!enabled)message='已關閉';
   else if(hostState?.phase==='offline')message='服務離線';
-  else if(p.state==='error'||hostState?.phase==='error'||hostState?.phase==='incompatible'||hostState?.error?.code==='RENDERER_FAILED')message=p.preview?'已保留靜態背景':'播放錯誤';
+  else if(renderFailed)message=retained?'即時載入失敗 · 保留靜態畫面':'即時載入失敗';
+  else if(hostState?.phase==='error'||hostState?.phase==='incompatible')message=retained?'接入未完成 · 保留靜態畫面':'接入失敗';
   else if(hostState?.observed?.suspended||p.suspended)message='已暫停';
+  else if(p.preview||hostState?.fallback?.source&&hostState.observed?.applied!==true)message='靜態預覽 · 正在預載';
   else if(hostState&&hostState.observed?.applied!==true)message=hostState.phase==='needs-launch'?'等待接入':'等待套用';
-  else if(p.preview)message='靜態預覽 · 正在預載';
   else if(!current)message=selectedId?'來源遺失':'從桌布庫選擇';
   else if(paused)message='已暫停';
   else message=playbackNames[p.state]||'等待套用';
   const detail=[current?kindName(current):'',message,model.dirty?'尚未儲存':''].filter(Boolean).join(' · ');
   if(status.textContent!==detail)status.textContent=detail;
+  syncProperty(handoffStatus,'textContent',message);
+  syncProperty(retryPlayback,'hidden',!enabled||!renderFailed||hostState?.observed?.connected===false);
   syncProperty(pause,'textContent',paused?'繼續':'暫停');
   syncAttribute(pause,'aria-label',paused?'繼續播放':'暫停播放');
   const offline=hostState?.phase==='offline';
@@ -556,11 +588,7 @@ function mountWallpaperPanel(options){
   const p=state.playback||{},rendering=state.rendering,powerSaving=state.settings.performance.powerSaving;
   const issue=state.error||(state.settings.wallpaper.selectedId?.startsWith('missing:')?'先前的桌布來源已失效，請在桌布庫選擇替代資源。':'');
   if(error.textContent!==issue)error.textContent=issue;
-  for(const [region,badge]of materialStates){
-   const enabled=state.settings.materials[region].enabled;
-   syncAttribute(badge,'data-enabled',String(enabled));
-   syncProperty(badge,'textContent',enabled?'已啟用':'原生');
-  }
+  renderMaterialStates();
   const scene=(state.cards||[]).find(c=>c.id===state.settings.wallpaper.selectedId)?.kind==='scene';
   syncProperty(sceneControls,'hidden',!scene);
   syncProperty(sceneFpsRow,'hidden',state.settings.playback.sceneLive===false||powerSaving);

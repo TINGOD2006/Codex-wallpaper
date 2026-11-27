@@ -5,7 +5,19 @@ const integers=new Set(['renderFps','displayFps','width','height','rotationSecon
 const plain=v=>v!==null&&typeof v==='object'&&!Array.isArray(v)&&Object.getPrototypeOf(v)===Object.prototype;
 const enums={fit:['cover','contain','stretch'],rendererMode:['auto','pool','isolated'],resolutionMode:['window','manual'],qualityMode:['fixed','balanced','low']};
 const legacyTemplateV1=structuredClone(template);legacyTemplateV1.schemaVersion=1;delete legacyTemplateV1.performance;
+const materialRegions=Object.keys(template.materials).filter(key=>key!=='global');
 function defaults(){return structuredClone(template)}
+function needsMaterialUpgrade(value){
+  const materials=value?.materials;
+  return plain(materials)&&(!Object.hasOwn(materials,'global')||materialRegions.some(key=>plain(materials[key])&&!Object.hasOwn(materials[key],'inherit')));
+}
+function upgradeMaterials(value){
+  if(!needsMaterialUpgrade(value))return value;
+  const old=value.materials;
+  const materials={global:template.materials.global,...old};
+  for(const key of materialRegions)if(plain(old[key])&&!Object.hasOwn(old[key],'inherit'))materials[key]={...old[key],inherit:false};
+  return {...value,materials};
+}
 function upgradeSurfaces(value){
   const next=structuredClone(value);
   if(plain(next)&&next.schemaVersion===1&&plain(next.materials))for(const name of ['titlebar','panels','overlays'])if(!Object.hasOwn(next.materials,name))next.materials[name]=structuredClone(template.materials[name]);
@@ -30,14 +42,19 @@ function validateAgainst(value,shape){
   }
   visit(value,shape);return structuredClone(value);
 }
-function validateSettings(value){const settings=validateAgainst(value,template);settings.performance.qualityMode='fixed';return settings}
-function upgradeSettings(value){const old=upgradeSurfaces(value);if(plain(old?.playback)&&[1,2].includes(old.schemaVersion)&&!Object.hasOwn(old.playback,'sceneLive'))old.playback.sceneLive=true;if(old?.schemaVersion===1){validateAgainst(old,legacyTemplateV1);return validateSettings({...old,schemaVersion:2,performance:{...template.performance,resolutionMode:'manual'}})}if(plain(old?.performance)&&!Object.hasOwn(old.performance,'powerSaving'))old.performance.powerSaving=false;return validateSettings(old)}
+function validateSettings(value){const settings=validateAgainst(upgradeMaterials(value),template);settings.performance.qualityMode='fixed';return settings}
+function upgradeSettings(value){const old=upgradeMaterials(upgradeSurfaces(value));if(plain(old?.playback)&&[1,2].includes(old.schemaVersion)&&!Object.hasOwn(old.playback,'sceneLive'))old.playback.sceneLive=true;if(old?.schemaVersion===1){validateAgainst(old,legacyTemplateV1);return validateSettings({...old,schemaVersion:2,performance:{...template.performance,resolutionMode:'manual'}})}if(plain(old?.performance)&&!Object.hasOwn(old.performance,'powerSaving'))old.performance.powerSaving=false;return validateSettings(old)}
 function mergeSettings(current,patch){
   const result=validateSettings(current);
   function merge(target,p,t){
     if(!plain(p)||Object.keys(p).some(k=>!Object.hasOwn(t,k)))throw new Error('Unknown settings field');
     for(const [k,v]of Object.entries(p)){if(plain(t[k]))merge(target[k],v,t[k]);else target[k]=structuredClone(v)}
   }
-  merge(result,patch,template);return validateSettings(result);
+  merge(result,patch,template);
+  for(const key of materialRegions){
+    const region=patch.materials?.[key];
+    if(plain(region)&&Object.hasOwn(region,'enabled')&&!Object.hasOwn(region,'inherit'))result.materials[key].inherit=false;
+  }
+  return validateSettings(result);
 }
-module.exports={defaults,validateSettings,mergeSettings,upgradeSurfaces,upgradeSettings,ranges};
+module.exports={defaults,validateSettings,mergeSettings,upgradeSurfaces,upgradeSettings,needsMaterialUpgrade,ranges};

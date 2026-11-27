@@ -3,7 +3,7 @@ const {desktopSelectors,MATERIAL_REGIONS}=require('../adapters.cjs');
 const mix=(color,alpha)=>`color-mix(in srgb, ${color} ${Math.round(Math.max(0,Math.min(1,alpha))*10000)/100}%, transparent)`;
 const FULL_WINDOW_MATERIALS={chat:{enabled:true,alpha:0,blur:0,border:0},sidebar:{enabled:true,alpha:.4,blur:0,border:.06},composer:{enabled:true,alpha:.6,blur:0,border:.12},titlebar:{enabled:true,alpha:.5,blur:0,border:0},panels:{enabled:true,alpha:.55,blur:0,border:.1},overlays:{enabled:true,alpha:.85,blur:0,border:.12}};
 function buildWallpaperStyles(settings,layout){
-  validateSettings(settings);if(!['codex','chatgpt'].includes(layout.kind))throw new Error('Unsupported wallpaper layout');
+  settings=validateSettings(settings);if(!['codex','chatgpt'].includes(layout.kind))throw new Error('Unsupported wallpaper layout');
   if(!settings.enabled)return {background:'',materials:'',colors:''};
   const r=settings.reading,p=settings.colors.palette,surface='var(--app-color-background-surface, Canvas)',mask=r.maskColor||surface;
   let background='';
@@ -11,8 +11,9 @@ function buildWallpaperStyles(settings,layout){
     const cover=r.fit==='cover'&&r.scale>=1,expandX=cover?Math.abs(r.offsetX):0,expandY=cover?Math.abs(r.offsetY):0;
     const filter=r.brightness===1&&r.contrast===1&&r.saturation===1&&r.blur===0?'none':`brightness(${r.brightness}) contrast(${r.contrast}) saturate(${r.saturation}) blur(${r.blur}px)`;
     const edge=cover?'':r.offsetX<0?`,linear-gradient(270deg,${mask} ${-r.offsetX}px,transparent ${-r.offsetX+128}px)`:r.offsetX>0?`,linear-gradient(90deg,${mask} ${r.offsetX}px,transparent ${r.offsetX+128}px)`:'';
+    const surfaceBacking=`${desktopSelectors.frame} [data-app-shell-workspace] > [data-app-shell-surface-backing][aria-hidden="true"]`;
     const threadFooter=`${desktopSelectors.canvas} [data-app-action-timeline-scroll].thread-scroll-container > .pointer-events-none.absolute.inset-x-0.z-20:is([class^="footer-"],[class*=" footer-"]):has([data-composer-surface-variant])`;
-    background=`${desktopSelectors.frame}{isolation:isolate;} ${desktopSelectors.canvas}{background-color:transparent!important;background-image:none!important;}
+    background=`${desktopSelectors.frame}{isolation:isolate;} ${desktopSelectors.canvas},${surfaceBacking}{background-color:transparent!important;background-image:none!important;}
 /* Measured native thread-footer decorations; keep the actual composer surface intact. */
 ${desktopSelectors.canvas} [data-app-action-timeline-scroll] .pointer-events-none.absolute.z-0:is([class*="_background_"],[class^="background-"],[class*=" background-"]):is([class*="_fade_"],[class*="_surface_"],[class^="fade-"],[class*=" fade-"],[class^="surface-"],[class*=" surface-"]){background-color:transparent!important;background-image:none!important;}
 /* Newer Codex paints the strip on the footer's pseudo-elements. */
@@ -22,9 +23,16 @@ ${threadFooter}::before,${threadFooter}::after{background-color:transparent!impo
 #codex-wallpaper-scrim{position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,${mix(mask,r.scrim+.14)} 0%,${mix(mask,r.scrim+.12)} 45%,${mix(mask,r.scrim+.06)} 68%,${mix(mask,r.scrim-.16)} 100%)${edge};}`;
   }
   let materials='';for(const [key,targets]of Object.entries(MATERIAL_REGIONS)){
-    const m=settings.materials[key];if(!m.enabled)continue;const selector=`:is(${targets})`;
-    materials+=`${selector}{background-color:${mix(surface,m.alpha)}!important;backdrop-filter:${m.blur?`blur(${m.blur}px)`:'none'}!important;box-shadow:${m.border?`inset 0 0 0 1px ${mix('var(--app-color-text-foreground, CanvasText)',m.border)}`:'none'};}`;
-    if(key==='sidebar'||key==='composer'||key==='titlebar')materials+=`${selector} :is(.bg-surface,.bg-surface-under){background-color:transparent!important;}`;
+    const region=settings.materials[key];if(!region.enabled)continue;const m=region.inherit?settings.materials.global:region,selector=`:is(${targets})`;
+    // The new-chat composer paints its body instead of its wrapper.
+    const home='[data-composer-utility-bar-variant="home"]';
+    const homeBody=`${selector}${home} :is(${desktopSelectors.composer})`;
+    const materialSurface=key==='composer'?`${selector}:not(${home}),${homeBody}`:selector;
+    materials+=`${materialSurface}{background-color:${mix(surface,m.alpha)}!important;backdrop-filter:${m.blur?`blur(${m.blur}px)`:'none'}!important;box-shadow:${m.border?`inset 0 0 0 1px ${mix('var(--app-color-text-foreground, CanvasText)',m.border)}`:'none'};}`;
+    if(key==='sidebar'||key==='composer'||key==='titlebar'){
+      const nativeFill=key==='composer'?`:not(${homeBody})`:'';
+      materials+=`${selector} :is(.bg-surface,.bg-surface-under)${nativeFill}{background-color:transparent!important;}`;
+    }
     // The native list adds a second translucent fill inside the sidebar surface.
     // Keep row selection/hover fills; only the measured list container is cleared.
     if(key==='sidebar')materials+=`${desktopSelectors.sidebar} .sidebar-navigation{background-color:transparent!important;background-image:none!important;}`;
